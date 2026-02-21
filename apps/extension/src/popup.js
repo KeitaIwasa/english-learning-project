@@ -42,17 +42,17 @@ async function loginWithGoogle() {
     });
   } catch (error) {
     const message = typeof error?.message === "string" ? error.message : String(error);
-    statusEl.textContent = `ログイン失敗: SupabaseのRedirect URLsに ${redirectUrl} を追加してください (${message})`;
+    setStatus(`ログイン失敗: SupabaseのRedirect URLsに ${redirectUrl} を追加してください (${message})`);
     return;
   }
 
   if (!callbackUrl) {
-    statusEl.textContent = "ログインに失敗しました";
+    setStatus("ログインに失敗しました");
     return;
   }
 
   if (!callbackUrl.startsWith(redirectUrl)) {
-    statusEl.textContent = `ログイン失敗: 想定外のリダイレクト先です。Supabaseに ${redirectUrl} を許可してください`;
+    setStatus(`ログイン失敗: 想定外のリダイレクト先です。Supabaseに ${redirectUrl} を許可してください`);
     return;
   }
 
@@ -61,13 +61,13 @@ async function loginWithGoogle() {
   const accessToken = params.get("access_token");
 
   if (!accessToken) {
-    statusEl.textContent = "トークン取得に失敗しました";
+    setStatus("トークン取得に失敗しました");
     return;
   }
 
   await chrome.storage.local.set({ accessToken });
   applyAuthState(true);
-  statusEl.textContent = "";
+  setStatus("");
 }
 
 async function addFlashcard() {
@@ -75,14 +75,14 @@ async function addFlashcard() {
   const ja = jaInput.value.trim();
 
   if (!en) {
-    statusEl.textContent = "English は必須です";
+    setStatus("English は必須です");
     return;
   }
 
   const { accessToken } = await chrome.storage.local.get("accessToken");
   if (!accessToken) {
     applyAuthState(false);
-    statusEl.textContent = "先にGoogleログインしてください";
+    setStatus("先にGoogleログインしてください");
     return;
   }
 
@@ -106,11 +106,11 @@ async function addFlashcard() {
       applyAuthState(false);
     }
     const text = await response.text();
-    statusEl.textContent = `追加失敗: ${text}`;
+    setStatus(`追加失敗: ${text}`);
     return;
   }
 
-  statusEl.textContent = "追加しました";
+  setStatus("追加しました");
   jaInput.value = "";
 }
 
@@ -131,5 +131,10 @@ function applyAuthState(isLoggedIn) {
     formArea.style.display = "none";
   }
   // Keep status area for actionable messages only (errors/success on add).
-  statusEl.textContent = "";
+  setStatus("");
+}
+
+function setStatus(message) {
+  statusEl.textContent = message;
+  statusEl.hidden = !message;
 }
