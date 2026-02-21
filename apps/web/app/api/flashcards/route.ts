@@ -12,18 +12,28 @@ export async function POST(request: Request) {
 
   const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
 
-  if (!userData.user) {
+  if (!userData.user || !session?.access_token) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  await supabase.functions.invoke("flashcards-add", {
+  const { error } = await supabase.functions.invoke("flashcards-add", {
     body: {
       en,
       ja: ja || undefined,
       source: "web"
+    },
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
     }
   });
+
+  if (error) {
+    console.error("flashcards-add invoke failed:", error.message);
+  }
 
   return NextResponse.redirect(new URL("/flashcards", request.url));
 }

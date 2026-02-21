@@ -14,3 +14,8 @@ apps/extension/src/config.js
 
 # supabase local temp
 supabase/.temp/
+
+# playwright
+playwright-report/
+test-results/
+tests/.auth/
