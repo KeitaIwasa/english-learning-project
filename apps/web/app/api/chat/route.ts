@@ -39,32 +39,42 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { data, error } = await supabase.functions.invoke("chat-router", {
-    body: parsed.data,
-    headers: {
-      Authorization: `Bearer ${session.access_token}`
-    }
-  });
-
-  if (error) {
-    const errorLike = error as { message?: string; context?: Response };
-    const context = errorLike.context;
-    const status = context?.status ?? 500;
-    let detail = errorLike.message ?? "Chat function invocation failed";
-
-    if (context) {
-      try {
-        const raw = await context.text();
-        if (raw) {
-          detail = `${detail}: ${raw}`;
-        }
-      } catch {
-        // Ignore body parse errors and keep the base message.
-      }
-    }
-
-    return NextResponse.json({ error: detail }, { status });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !anonKey) {
+    return NextResponse.json({ error: "Missing Supabase env vars" }, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  const upstream = await fetch(`${supabaseUrl}/functions/v1/chat-router`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: anonKey
+    },
+    body: JSON.stringify(parsed.data)
+  });
+
+  const contentType = upstream.headers.get("content-type") ?? "";
+  if (contentType.includes("text/event-stream")) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive"
+      }
+    });
+  }
+
+  const text = await upstream.text();
+  if (!upstream.ok) {
+    return NextResponse.json({ error: text || "Chat function invocation failed" }, { status: upstream.status });
+  }
+
+  try {
+    return NextResponse.json(JSON.parse(text));
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON from chat-router" }, { status: 502 });
+  }
 }

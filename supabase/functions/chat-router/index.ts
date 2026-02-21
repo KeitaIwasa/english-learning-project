@@ -2,9 +2,11 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
 import { addFlashcard } from "../_shared/flashcards.ts";
-import { generateWithGemini } from "../_shared/gemini.ts";
+import { generateWithGemini, streamWithGemini } from "../_shared/gemini.ts";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
+const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 exchanges (user+assistant)
+const ASK_CONTEXT_MAX_CHARS = 3000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -81,57 +83,23 @@ Deno.serve(async (req) => {
 
     const { data: historyRows } = await serviceClient
       .from("chat_messages")
-      .select("role, content")
+      .select("id, role, content")
       .eq("thread_id", threadId)
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(40);
 
-    const history = [...(historyRows ?? [])].reverse();
-    const historyText = history.map((row) => `${row.role}: ${row.content}`).join("\n");
+    const history = [...(historyRows ?? [])]
+      .filter((row) => row.id !== userMessage.id)
+      .reverse();
+    const historyText = buildAskContext(history, ASK_CONTEXT_MAX_MESSAGES, ASK_CONTEXT_MAX_CHARS);
 
-    const answer = await generateWithGemini({
-      model: appEnv.geminiReasoningModel(),
-      instruction:
-        "You are an English tutor. Return strict JSON: {\"reply\": string, \"corrections\": string[], \"reviewHints\": string[], \"signals\": [{\"key\": string, \"weight\": number}]}. Use Japanese explanations for learning hints.",
-      input: `Conversation history:\n${historyText}\n\nCurrent user message:\n${message}`,
-      responseMimeType: "application/json"
-    });
-
-    const structured = parseStructuredAsk(answer.text);
-
-    const { error: assistantMessageError } = await serviceClient.from("chat_messages").insert({
-      thread_id: threadId,
-      user_id: user.id,
-      role: "assistant",
-      mode,
-      content: structured.reply
-    });
-
-    if (assistantMessageError) {
-      throw assistantMessageError;
-    }
-
-    const signals = structured.signals.length > 0 ? structured.signals : deriveSignals(message, structured.reply);
-    if (signals.length > 0) {
-      const { error: signalInsertError } = await serviceClient.from("chat_learning_signals").insert(
-        signals.map((signal) => ({
-          user_id: user.id,
-          source_message_id: userMessage.id,
-          signal_type: "grammar_or_usage",
-          signal_key: signal.key,
-          weight: signal.weight
-        }))
-      );
-
-      if (signalInsertError) {
-        console.error(signalInsertError);
-      }
-    }
-
-    return json({
-      reply: structured.reply,
-      corrections: structured.corrections,
-      reviewHints: structured.reviewHints
+    return streamAskResponse({
+      historyText,
+      message,
+      userId: user.id,
+      userMessageId: userMessage.id,
+      threadId,
+      serviceClient
     });
   } catch (error) {
     console.error(error);
@@ -182,6 +150,37 @@ function parseFlashcardMessage(message: string): { en: string; ja?: string } {
   };
 }
 
+function buildAskContext(
+  rows: Array<{ role: string; content: string }>,
+  maxMessages: number,
+  maxChars: number
+): string {
+  const recent = rows.slice(-maxMessages);
+  const selected: string[] = [];
+  let usedChars = 0;
+
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const line = `${recent[index].role}: ${String(recent[index].content ?? "").trim()}`;
+    if (!line.trim()) {
+      continue;
+    }
+
+    const withNewline = selected.length > 0 ? line.length + 1 : line.length;
+    if (usedChars + withNewline <= maxChars) {
+      selected.push(line);
+      usedChars += withNewline;
+      continue;
+    }
+
+    if (selected.length === 0) {
+      selected.push(line.slice(0, maxChars));
+    }
+    break;
+  }
+
+  return selected.reverse().join("\n");
+}
+
 function parseStructuredAsk(text: string): {
   reply: string;
   corrections: string[];
@@ -189,15 +188,19 @@ function parseStructuredAsk(text: string): {
   signals: Array<{ key: string; weight: number }>;
 } {
   try {
-    const json = JSON.parse(text);
+    const parsed: unknown = JSON.parse(text);
+    const json = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
     return {
       reply: String(json.reply ?? ""),
       corrections: Array.isArray(json.corrections) ? json.corrections.map(String) : [],
       reviewHints: Array.isArray(json.reviewHints) ? json.reviewHints.map(String) : [],
       signals: Array.isArray(json.signals)
         ? json.signals
-            .map((raw) => ({ key: String(raw.key ?? ""), weight: Number(raw.weight ?? 0.5) }))
-            .filter((s) => s.key)
+            .map((raw: unknown) => {
+              const signal = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+              return { key: String(signal.key ?? ""), weight: Number(signal.weight ?? 0.5) };
+            })
+            .filter((s: { key: string; weight: number }) => s.key)
         : []
     };
   } catch {
@@ -220,6 +223,94 @@ function deriveSignals(message: string, reply: string): Array<{ key: string; wei
   ];
 
   return rules.filter((rule) => rule.pattern.test(text)).map((rule) => ({ key: rule.key, weight: 0.6 }));
+}
+
+function streamAskResponse(params: {
+  historyText: string;
+  message: string;
+  userId: string;
+  userMessageId: string;
+  threadId: string;
+  serviceClient: any;
+}) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const writeEvent = (event: "delta" | "done" | "error", payload: unknown) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
+      };
+
+      const process = async () => {
+        try {
+          let answerText = "";
+
+          for await (const chunk of streamWithGemini({
+            model: appEnv.geminiFastModel(),
+            instruction:
+              "You are an English tutor. Return strict JSON: {\"reply\": string, \"corrections\": string[], \"reviewHints\": string[], \"signals\": [{\"key\": string, \"weight\": number}]}. Use Japanese explanations for learning hints.",
+            input: `Conversation history:\n${params.historyText}\n\nCurrent user message:\n${params.message}`,
+            responseMimeType: "application/json"
+          })) {
+            answerText += chunk;
+            writeEvent("delta", { text: chunk });
+          }
+
+          const structured = parseStructuredAsk(answerText);
+          const { error: assistantMessageError } = await params.serviceClient.from("chat_messages").insert({
+            thread_id: params.threadId,
+            user_id: params.userId,
+            role: "assistant",
+            mode: "ask",
+            content: structured.reply
+          });
+
+          if (assistantMessageError) {
+            throw assistantMessageError;
+          }
+
+          const signals =
+            structured.signals.length > 0 ? structured.signals : deriveSignals(params.message, structured.reply);
+          if (signals.length > 0) {
+            const { error: signalInsertError } = await params.serviceClient.from("chat_learning_signals").insert(
+              signals.map((signal) => ({
+                user_id: params.userId,
+                source_message_id: params.userMessageId,
+                signal_type: "grammar_or_usage",
+                signal_key: signal.key,
+                weight: signal.weight
+              }))
+            );
+
+            if (signalInsertError) {
+              console.error(signalInsertError);
+            }
+          }
+
+          writeEvent("done", {
+            reply: structured.reply,
+            corrections: structured.corrections,
+            reviewHints: structured.reviewHints
+          });
+        } catch (error) {
+          console.error(error);
+          writeEvent("error", { message: String(error) });
+        } finally {
+          controller.close();
+        }
+      };
+
+      void process();
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive"
+    }
+  });
 }
 
 function json(payload: unknown, status = 200) {
