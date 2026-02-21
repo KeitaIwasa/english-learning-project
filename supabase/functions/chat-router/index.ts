@@ -250,22 +250,28 @@ function streamAskResponse(params: {
       const process = async () => {
         try {
           let answerText = "";
+          let streamError: unknown = null;
 
-          for await (const chunk of streamWithGemini({
-            model: appEnv.geminiFastModel(),
-            instruction:
-              "あなたは英語学習のチューターです。学習の説明は自然な日本語で行い、ユーザーの最新メッセージに集中して回答してください。",
-            input: `会話履歴:\n${params.historyText}\n\n現在のユーザーメッセージ:\n${params.message}`
-          })) {
-            answerText += chunk;
-            writeEvent("delta", { text: chunk });
+          try {
+            for await (const chunk of streamWithGemini({
+              model: appEnv.geminiFastModel(),
+              instruction:
+                "あなたは英語学習のチューターです。学習の説明は自然な日本語で行い、ユーザーの最新メッセージに集中して回答してください。",
+              input: `会話履歴:\n${params.historyText}\n\n現在のユーザーメッセージ:\n${params.message}`
+            })) {
+              answerText += chunk;
+              writeEvent("delta", { text: chunk });
+            }
+          } catch (error) {
+            streamError = error;
+            console.error(`[chat-router] streamWithGemini failed: ${String(error)}`);
           }
 
           // Gemini stream occasionally ends without text for ask mode.
           // Fall back to non-stream generateContent so users still get a reply.
           if (!answerText.trim()) {
             console.error(
-              `[chat-router] Empty ask stream response. Falling back to generateContent. threadId=${params.threadId}`
+              `[chat-router] Empty ask stream response. Falling back to generateContent. threadId=${params.threadId} streamError=${String(streamError)}`
             );
             const fallback = await generateWithGemini({
               model: appEnv.geminiFastModel(),
@@ -277,6 +283,12 @@ function streamAskResponse(params: {
             if (answerText) {
               writeEvent("delta", { text: answerText });
             }
+          }
+
+          if (!answerText.trim()) {
+            throw new Error(
+              `[chat-router] ask response is empty after stream + fallback. threadId=${params.threadId} streamError=${String(streamError)}`
+            );
           }
 
           const { error: assistantMessageError } = await params.serviceClient.from("chat_messages").insert({

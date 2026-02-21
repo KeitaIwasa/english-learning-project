@@ -111,50 +111,47 @@ export async function* streamWithGemini(params: {
   };
 
   const parseEventText = (eventText: string): string[] => {
-    const dataLines = eventText
+    const normalized = eventText.replace(/\r/g, "");
+    const rawLines = normalized
       .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trim());
+      .map((line) => line.trimStart());
+    const dataLines = rawLines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim());
 
-    if (dataLines.length === 0) {
-      return [];
-    }
+    const payloadCandidates = dataLines.length > 0 ? [dataLines.join("\n")] : [normalized.trim()];
 
-    const payload = dataLines.join("\n");
-    if (payload === "[DONE]") {
-      return [];
-    }
-
-    let json: unknown;
-    try {
-      json = JSON.parse(payload);
-    } catch {
-      return [];
-    }
-
-    // Some Gemini stream payloads may be wrapped in an array.
-    const items: unknown[] = Array.isArray(json) ? json : [json];
     const out: string[] = [];
-
-    for (const item of items) {
-      lastDebugSummary = summarizePayload(item);
-      if (!item || typeof item !== "object") {
+    for (const payload of payloadCandidates) {
+      if (!payload || payload === "[DONE]") {
         continue;
       }
 
-      const parsed = item as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-      const text = parsed.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-      if (text) {
-        out.push(text);
+      let json: unknown;
+      try {
+        json = JSON.parse(payload);
+      } catch {
+        lastDebugSummary = `json_parse_failed:${payload.slice(0, 200)}`;
+        continue;
+      }
+
+      // Some Gemini stream payloads may be wrapped in an array.
+      const items: unknown[] = Array.isArray(json) ? json : [json];
+
+      for (const item of items) {
+        lastDebugSummary = summarizePayload(item);
+        if (!item || typeof item !== "object") {
+          continue;
+        }
+
+        const parsed = item as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const text = parsed.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+        if (text) {
+          out.push(text);
+        }
       }
     }
 
     if (out.length > 0) {
       textChunkCount += out.length;
-    }
-
-    if (!json || typeof json !== "object") {
-      return [];
     }
     return out;
   };

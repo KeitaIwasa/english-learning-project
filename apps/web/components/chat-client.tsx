@@ -53,7 +53,7 @@ const modeLabels: Record<ChatMode, string> = {
 const streamableModes: ChatMode[] = ["ask", "translate"];
 
 export function ChatClient() {
-  const [mode, setMode] = useState<ChatMode>("ask");
+  const [mode, setMode] = useState<ChatMode>("translate");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -294,18 +294,6 @@ export function ChatClient() {
     <section className="panel chat-shell">
       <header className="chat-header">
         <h2>学習チャット</h2>
-        <div className="chat-modes">
-          {(["ask", "translate", "add_flashcard"] as ChatMode[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={item === mode ? "chat-mode active" : "chat-mode"}
-              onClick={() => setMode(item)}
-            >
-              {modeLabels[item]}
-            </button>
-          ))}
-        </div>
       </header>
 
       <div ref={timelineRef} className="chat-timeline">
@@ -350,6 +338,18 @@ export function ChatClient() {
       </div>
 
       <form className="chat-composer" onSubmit={submit}>
+        <div className="chat-modes">
+          {(["ask", "translate", "add_flashcard"] as ChatMode[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={item === mode ? "chat-mode active" : "chat-mode"}
+              onClick={() => setMode(item)}
+            >
+              {modeLabels[item]}
+            </button>
+          ))}
+        </div>
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
