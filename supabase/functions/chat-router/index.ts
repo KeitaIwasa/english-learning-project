@@ -6,7 +6,8 @@ import { generateWithGemini, streamWithGemini, type GeminiContent } from "../_sh
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
 type AskStreamDonePayload = { reply: string; threadId: string };
-const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 turns
+const ASK_CONTEXT_HISTORY_TURNS = 5;
+const ASK_CONTEXT_MAX_MESSAGES = ASK_CONTEXT_HISTORY_TURNS * 2 + 1; // 5 turns (10 messages) + latest user message
 const ASK_CONTEXT_MAX_CHARS = 3000;
 
 Deno.serve(async (req) => {

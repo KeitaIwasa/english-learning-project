@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { GoogleLoginButton } from "@/components/google-login-button";
 import { AppNav } from "@/components/nav";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -20,8 +19,7 @@ export default async function LandingPage() {
           <Link href="/reading">音読ページへ</Link>
         ) : (
           <div>
-            <p>Googleアカウントでログインしてください。</p>
-            <GoogleLoginButton />
+            <p>Googleアカウントでログインしてください（右上のボタンから）。</p>
           </div>
         )}
       </section>

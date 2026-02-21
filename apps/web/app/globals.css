@@ -112,6 +112,7 @@ nav a:hover {
   background: transparent;
   padding: 0;
   border-radius: 999px;
+  cursor: pointer;
 }
 
 .user-avatar-btn:hover {
@@ -129,6 +130,14 @@ nav a:hover {
   color: #17325b;
   border: 1px solid #bdd0ff;
   font-weight: 700;
+}
+
+.user-avatar-login {
+  font-family: "Arial", sans-serif;
+  font-size: 18px;
+  background: #ffffff;
+  color: #1f5eff;
+  border-color: #98b5ff;
 }
 
 .user-menu-popover {
