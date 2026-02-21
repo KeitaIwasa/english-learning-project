@@ -13,7 +13,7 @@
     "typecheck": "npm run typecheck -w @english/web && npm run typecheck -w @english/shared",
     "test": "npm run test -w @english/shared",
     "test:e2e": "playwright test --project=chromium",
-    "test:e2e:setup-auth": "playwright test tests/auth.setup.ts --project=setup --headed",
+    "test:e2e:setup-auth": "node scripts/playwright/setup-auth-cdp.mjs",
     "test:e2e:auth": "playwright test --project=chromium-auth",
     "deploy:supabase": "bash scripts/deploy_supabase.sh",
     "deploy:vercel": "bash scripts/deploy_vercel.sh"

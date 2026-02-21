@@ -20,28 +20,13 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "setup",
-      testMatch: /.*\.setup\.ts/,
-      use: {
-        ...devices["Desktop Chrome"],
-        channel: "chrome",
-        headless: false,
-        ignoreHTTPSErrors: true,
-        launchOptions: {
-          args: ["--disable-blink-features=AutomationControlled"],
-          ignoreDefaultArgs: ["--enable-automation"]
-        }
-      }
-    },
-    {
       name: "chromium",
-      testIgnore: [/.*\.setup\.ts/, /.*authenticated\.spec\.ts/],
+      testIgnore: /.*authenticated\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] }
     },
     {
       name: "chromium-auth",
       testMatch: /.*authenticated\.spec\.ts/,
-      dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
         storageState: authFile

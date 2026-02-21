@@ -77,6 +77,77 @@ nav a:hover {
   background: #eaf0f8;
 }
 
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.app-nav {
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.app-header-right {
+  margin-left: auto;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-avatar-btn {
+  background: transparent;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.user-avatar-btn:hover {
+  background: transparent;
+}
+
+.user-avatar {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #dbe7ff;
+  color: #17325b;
+  border: 1px solid #bdd0ff;
+  font-weight: 700;
+}
+
+.user-menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(19, 35, 58, 0.14);
+  z-index: 20;
+}
+
+.user-email {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.signout-btn {
+  width: 100%;
+  background: #eff4ff;
+  color: #17325b;
+  border: 1px solid #c8d8f8;
+}
+
 button {
   border: 0;
   border-radius: 10px;
