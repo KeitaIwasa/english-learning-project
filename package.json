@@ -1,0 +1,21 @@
+{
+  "name": "english-learning-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @english/web",
+    "build:web": "npm run build -w @english/web",
+    "start:web": "npm run start -w @english/web",
+    "typecheck": "npm run typecheck -w @english/web && npm run typecheck -w @english/shared",
+    "test": "npm run test -w @english/shared",
+    "deploy:supabase": "bash scripts/deploy_supabase.sh",
+    "deploy:vercel": "bash scripts/deploy_vercel.sh"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

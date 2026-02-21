@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "English Flashcard Quick Add",
+  "version": "0.1.0",
+  "description": "Quickly add selected English sentences to your flashcards.",
+  "permissions": ["storage", "contextMenus", "activeTab", "identity"],
+  "host_permissions": ["https://*.supabase.co/*"],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Add Flashcard"
+  }
+}

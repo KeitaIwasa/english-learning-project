@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Add Flashcard</title>
+    <style>
+      body {
+        width: 320px;
+        margin: 0;
+        font-family: "Noto Sans JP", sans-serif;
+        background: #f6f9ff;
+        color: #192436;
+      }
+      .wrap {
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+      }
+      textarea,
+      input {
+        width: 100%;
+        border: 1px solid #d4deed;
+        border-radius: 8px;
+        padding: 8px;
+        font: inherit;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        background: #205bff;
+        color: #fff;
+        padding: 8px;
+        font-weight: 600;
+      }
+      .muted {
+        color: #5f6f82;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <button id="loginBtn">Googleログイン</button>
+      <label>
+        English
+        <textarea id="enInput" rows="4" placeholder="Add English sentence"></textarea>
+      </label>
+      <label>
+        日本語訳（任意）
+        <input id="jaInput" placeholder="Leave empty to auto-translate" />
+      </label>
+      <button id="saveBtn">フラッシュカード追加</button>
+      <p id="status" class="muted"></p>
+    </div>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>
