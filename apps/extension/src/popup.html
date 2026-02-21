@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Add Flashcard</title>
     <style>
+      * {
+        box-sizing: border-box;
+      }
       body {
         width: 320px;
         margin: 0;
@@ -16,6 +19,14 @@
         padding: 12px;
         display: grid;
         gap: 8px;
+      }
+      #formArea {
+        display: grid;
+        gap: 10px;
+      }
+      label {
+        display: grid;
+        gap: 4px;
       }
       textarea,
       input {
@@ -33,6 +44,9 @@
         padding: 8px;
         font-weight: 600;
       }
+      .force-hidden {
+        display: none !important;
+      }
       .muted {
         color: #5f6f82;
         font-size: 12px;
@@ -42,15 +56,17 @@
   <body>
     <div class="wrap">
       <button id="loginBtn">Googleログイン</button>
-      <label>
-        English
-        <textarea id="enInput" rows="4" placeholder="Add English sentence"></textarea>
-      </label>
-      <label>
-        日本語訳（任意）
-        <input id="jaInput" placeholder="Leave empty to auto-translate" />
-      </label>
-      <button id="saveBtn">フラッシュカード追加</button>
+      <div id="formArea" hidden>
+        <label>
+          English
+          <textarea id="enInput" rows="4" placeholder="Add English sentence"></textarea>
+        </label>
+        <label>
+          日本語訳（任意）
+          <input id="jaInput" placeholder="Leave empty to auto-translate" />
+        </label>
+        <button id="saveBtn">フラッシュカード追加</button>
+      </div>
       <p id="status" class="muted"></p>
     </div>
     <script type="module" src="./popup.js"></script>

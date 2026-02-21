@@ -7,8 +7,13 @@ if [[ ! -d "apps/web" ]]; then
 fi
 
 cd apps/web
-npx vercel login
-npx vercel link
-npx vercel --prod
+
+if ! npx vercel whoami >/dev/null 2>&1; then
+  echo "Vercel authentication required. Starting login..."
+  npx vercel login
+fi
+
+npx vercel link --yes
+npx vercel --prod --yes
 
 echo "Vercel deployment complete."
