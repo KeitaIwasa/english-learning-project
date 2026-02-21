@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -59,6 +60,13 @@ export function ChatClient() {
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const scrollToTimelineBottom = useCallback(() => {
+    const el = timelineRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  }, []);
 
   const placeholder = useMemo(() => {
     if (mode === "translate") {
@@ -116,12 +124,8 @@ export function ChatClient() {
   }, []);
 
   useEffect(() => {
-    const el = timelineRef.current;
-    if (!el) {
-      return;
-    }
-    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-  }, [messages, loading, loadingHistory]);
+    scrollToTimelineBottom();
+  }, [messages, loading, loadingHistory, scrollToTimelineBottom]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -141,6 +145,7 @@ export function ChatClient() {
     setMessages((prev) => [...prev, userMessage]);
     setMessage("");
     setLoading(true);
+    requestAnimationFrame(scrollToTimelineBottom);
     const assistantId = crypto.randomUUID();
 
     try {
@@ -287,15 +292,12 @@ export function ChatClient() {
       });
     } finally {
       setLoading(false);
+      requestAnimationFrame(scrollToTimelineBottom);
     }
   };
 
   return (
     <section className="panel chat-shell">
-      <header className="chat-header">
-        <h2>学習チャット</h2>
-      </header>
-
       <div ref={timelineRef} className="chat-timeline">
         {loadingHistory ? (
           <p className="muted">履歴を読み込み中...</p>
@@ -362,8 +364,14 @@ export function ChatClient() {
           rows={2}
           placeholder={placeholder}
         />
-        <button type="submit" disabled={loading || !message.trim()}>
-          送信
+        <button
+          type="submit"
+          className="chat-send-button"
+          disabled={loading || !message.trim()}
+          aria-label="送信"
+        >
+          <SendHorizontal size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+          <span className="sr-only">送信</span>
         </button>
       </form>
     </section>

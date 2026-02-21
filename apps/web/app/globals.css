@@ -168,20 +168,19 @@ ul {
 }
 
 .chat-shell {
-  min-height: 72vh;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   gap: 16px;
   padding: 18px;
+  overflow: hidden;
 }
 
-.chat-header {
-  display: grid;
-  gap: 12px;
-}
-
-.chat-header h2 {
-  margin: 0;
+.chat-page {
+  height: calc(100dvh - 118px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-modes {
@@ -215,8 +214,8 @@ ul {
   max-width: min(78ch, 88%);
   border-radius: 16px;
   padding: 12px 14px;
-  white-space: pre-wrap;
-  line-height: 1.55;
+  white-space: normal;
+  line-height: 1.48;
 }
 
 .bubble p {
@@ -231,12 +230,40 @@ ul {
   margin-bottom: 0;
 }
 
+.markdown-body {
+  white-space: normal;
+  line-height: 1.6;
+}
+
 .markdown-body p,
 .markdown-body ul,
 .markdown-body ol,
 .markdown-body pre,
 .markdown-body blockquote {
-  margin: 0.4em 0;
+  margin: 0.16em 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.2em;
+}
+
+.markdown-body li + li {
+  margin-top: 0.15em;
+}
+
+.markdown-body hr {
+  margin: 0.35em 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 0.3em 0 0.14em;
+  line-height: 1.32;
 }
 
 .markdown-body code {
@@ -269,6 +296,7 @@ ul {
   background: #1f5eff;
   color: #fff;
   border-bottom-right-radius: 6px;
+  white-space: pre-wrap;
 }
 
 .bubble.assistant {
@@ -301,8 +329,6 @@ ul {
   grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: end;
-  position: sticky;
-  bottom: 0;
 }
 
 .chat-composer .chat-modes {
@@ -317,9 +343,23 @@ ul {
   padding: 8px;
 }
 
+.chat-send-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 @media (max-width: 640px) {
+  .chat-page {
+    height: calc(100dvh - 106px);
+  }
+
   .chat-shell {
-    min-height: 78vh;
+    min-height: 0;
     padding: 14px;
   }
 
@@ -328,7 +368,7 @@ ul {
   }
 
   .chat-composer {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto;
   }
 }
 

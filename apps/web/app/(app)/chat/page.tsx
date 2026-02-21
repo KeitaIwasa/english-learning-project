@@ -14,5 +14,9 @@ export default async function ChatPage() {
     );
   }
 
-  return <ChatClient />;
+  return (
+    <section className="chat-page">
+      <ChatClient />
+    </section>
+  );
 }

@@ -116,7 +116,7 @@ function streamTranslateResponse(params: { message: string }) {
           for await (const chunk of streamWithGemini({
             model: appEnv.geminiFastModel(),
             instruction:
-              "あなたは翻訳エンジンです。入力が日本語か英語かを判定し、反対言語へ翻訳してください。余計な説明は付けず、翻訳結果のみを出力してください。",
+              "あなたは、英会話教師です。ユーザーが送るメッセージは以下のいずれかです。\n- 日本語の文章→自然な英語に翻訳してください。（いくつか候補を提示）\n- 英語の単語や文章→日本語に翻訳して、どのようなニュアンスになるか説明してください。英語の使い方に誤りがあったり不自然だったりする場合は、的確に指摘してください。",
             input: params.message
           })) {
             answerText += chunk;
