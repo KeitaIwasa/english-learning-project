@@ -46,6 +46,25 @@ export type Database = {
           created_at: string;
         };
       };
+      speech_fix_jobs: {
+        Row: {
+          id: string;
+          user_id: string;
+          file_name: string;
+          custom_title: string | null;
+          file_size: number;
+          mime_type: string;
+          status: "uploaded" | "queued" | "processing" | "completed" | "failed";
+          storage_path: string | null;
+          transcript_full: string | null;
+          corrections_json: Json;
+          stats_json: Json;
+          error_message: string | null;
+          created_at: string;
+          updated_at: string;
+          completed_at: string | null;
+        };
+      };
     };
   };
 };

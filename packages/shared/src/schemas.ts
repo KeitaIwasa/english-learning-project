@@ -40,6 +40,17 @@ export const readingGenerateRequestSchema = z.object({
   profileId: z.string().uuid().optional()
 });
 
+export const speechFixJobStatusSchema = z.enum(["uploaded", "queued", "processing", "completed", "failed"]);
+
+export const speechFixCorrectionSchema = z.object({
+  index: z.number().int().positive(),
+  original: z.string().min(1),
+  corrected: z.string().min(1),
+  ja: z.string().min(1),
+  reasonJa: z.string().min(1),
+  addedFlashcardId: z.string().uuid().nullable()
+});
+
 export const generatedPassageSchema = z.object({
   passage: z.string().min(1),
   title: z.string().min(1),
@@ -69,3 +80,5 @@ export type FlashcardReviewRequest = z.infer<typeof flashcardReviewRequestSchema
 export type LearningProfileBuildRequest = z.infer<typeof learningProfileBuildRequestSchema>;
 export type ReadingGenerateRequest = z.infer<typeof readingGenerateRequestSchema>;
 export type GeneratedPassage = z.infer<typeof generatedPassageSchema>;
+export type SpeechFixJobStatus = z.infer<typeof speechFixJobStatusSchema>;
+export type SpeechFixCorrection = z.infer<typeof speechFixCorrectionSchema>;

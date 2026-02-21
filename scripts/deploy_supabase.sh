@@ -26,5 +26,6 @@ npx supabase functions deploy flashcards-review
 npx supabase functions deploy chat-router
 npx supabase functions deploy learning-profile-build
 npx supabase functions deploy reading-generate-daily
+npx supabase functions deploy speech-fixer-process
 
 echo "Supabase deployment complete."

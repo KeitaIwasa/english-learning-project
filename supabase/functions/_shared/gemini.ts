@@ -153,7 +153,14 @@ export async function synthesizeSpeechWithGemini(params: {
     throw new Error("Gemini TTS response audio data is empty");
   }
 
-  return { audioBase64, mimeType };
+  const pcmSampleRate = parsePcm16SampleRate(mimeType);
+  if (!pcmSampleRate) {
+    return { audioBase64, mimeType };
+  }
+
+  const pcmBytes = base64ToBytes(audioBase64);
+  const wavBytes = pcm16MonoToWavBytes(pcmBytes, pcmSampleRate);
+  return { audioBase64: bytesToBase64(wavBytes), mimeType: "audio/wav" };
 }
 
 export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<string> {
@@ -299,4 +306,65 @@ function concatBase64Chunks(chunks: string[]): string {
     binary += String.fromCharCode(value);
   }
   return btoa(binary);
+}
+
+function parsePcm16SampleRate(mimeType: string): number | null {
+  if (!/^audio\/l16/i.test(mimeType)) {
+    return null;
+  }
+  const match = mimeType.match(/rate=(\d+)/i);
+  const sampleRate = Number(match?.[1] ?? 24000);
+  return Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : null;
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const value of bytes) {
+    binary += String.fromCharCode(value);
+  }
+  return btoa(binary);
+}
+
+function pcm16MonoToWavBytes(pcmBytes: Uint8Array, sampleRate: number): Uint8Array {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = pcmBytes.length;
+  const wavSize = 44 + dataSize;
+
+  const wav = new Uint8Array(wavSize);
+  const view = new DataView(wav.buffer);
+
+  writeAscii(wav, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(wav, 8, "WAVE");
+  writeAscii(wav, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeAscii(wav, 36, "data");
+  view.setUint32(40, dataSize, true);
+  wav.set(pcmBytes, 44);
+
+  return wav;
+}
+
+function writeAscii(target: Uint8Array, offset: number, text: string) {
+  for (let i = 0; i < text.length; i += 1) {
+    target[offset + i] = text.charCodeAt(i);
+  }
 }

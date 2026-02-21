@@ -30,3 +30,6 @@ verify_jwt = false
 
 [functions.flashcards-review]
 verify_jwt = false
+
+[functions.speech-fixer-process]
+verify_jwt = false
