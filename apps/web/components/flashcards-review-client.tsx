@@ -50,7 +50,7 @@ type RecentCardsResponse = {
   error?: string;
 };
 
-const PAGE_SIZE = 20;
+const LIST_LIMIT = 100;
 
 export function FlashcardsReviewClient() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -65,7 +65,6 @@ export function FlashcardsReviewClient() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [recentCards, setRecentCards] = useState<RecentCardWithSm2[]>([]);
   const [recentTotal, setRecentTotal] = useState(0);
-  const [recentOffset, setRecentOffset] = useState(0);
   const [loadingRecent, setLoadingRecent] = useState(true);
   const [recentError, setRecentError] = useState("");
   const [draftById, setDraftById] = useState<Record<string, { en: string; ja: string }>>({});
@@ -147,10 +146,6 @@ export function FlashcardsReviewClient() {
   }, [searchQuery]);
 
   useEffect(() => {
-    setRecentOffset(0);
-  }, [debouncedQuery]);
-
-  useEffect(() => {
     let active = true;
 
     const loadRecentCards = async () => {
@@ -159,8 +154,7 @@ export function FlashcardsReviewClient() {
       try {
         const params = new URLSearchParams({
           q: debouncedQuery,
-          limit: String(PAGE_SIZE),
-          offset: String(recentOffset)
+          limit: String(LIST_LIMIT)
         });
 
         const res = await fetch(`/api/flashcards/manage?${params.toString()}`, { method: "GET" });
@@ -204,7 +198,7 @@ export function FlashcardsReviewClient() {
     return () => {
       active = false;
     };
-  }, [debouncedQuery, recentOffset, refreshKey]);
+  }, [debouncedQuery, refreshKey]);
 
   const submitReview = async (remembered: boolean) => {
     if (!current || submitting) {
@@ -240,9 +234,6 @@ export function FlashcardsReviewClient() {
   };
 
   const hasCompleted = !loadingQueue && !queueError && queue.length === 0;
-
-  const hasPrev = recentOffset > 0;
-  const hasNext = recentOffset + recentCards.length < recentTotal;
 
   const saveCardIfNeeded = async (cardId: string) => {
     const card = recentCards.find((item) => item.id === cardId);
@@ -344,12 +335,7 @@ export function FlashcardsReviewClient() {
         return;
       }
 
-      const nextTotal = Math.max(0, recentTotal - 1);
-      if (recentOffset > 0 && recentOffset >= nextTotal) {
-        setRecentOffset(Math.max(0, recentOffset - PAGE_SIZE));
-      } else {
-        setRefreshKey((prev) => prev + 1);
-      }
+      setRefreshKey((prev) => prev + 1);
     } catch (error) {
       setRecentError(`削除に失敗しました: ${String(error)}`);
     } finally {
@@ -635,25 +621,7 @@ export function FlashcardsReviewClient() {
         ) : null}
 
         <div className="fc-pagination">
-          <button
-            type="button"
-            className="fc-page-btn"
-            onClick={() => setRecentOffset((prev) => Math.max(0, prev - PAGE_SIZE))}
-            disabled={loadingRecent || !hasPrev}
-          >
-            ← 前へ
-          </button>
-          <span className="fc-page-info muted">
-            {recentTotal === 0 ? "0 件" : `${recentOffset + 1}–${Math.min(recentOffset + recentCards.length, recentTotal)} / ${recentTotal}`}
-          </span>
-          <button
-            type="button"
-            className="fc-page-btn"
-            onClick={() => setRecentOffset((prev) => prev + PAGE_SIZE)}
-            disabled={loadingRecent || !hasNext}
-          >
-            次へ →
-          </button>
+          <span className="fc-page-info muted">{recentTotal} 件</span>
         </div>
       </section>
     </div>
