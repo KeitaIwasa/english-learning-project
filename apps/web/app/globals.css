@@ -96,7 +96,7 @@ nav a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 5px;
+  margin-bottom: 10px;
 }
 
 
@@ -546,4 +546,492 @@ ul {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* ═══════════════════════════════════
+   Flashcard Page – New Design System
+   ═══════════════════════════════════ */
+
+.fc-page {
+  display: grid;
+  gap: 20px;
+}
+
+/* Section header */
+.fc-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.fc-section-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.fc-section-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.fc-count-badge {
+  margin-left: auto;
+  background: #e8f0ff;
+  color: #1a49bc;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Loading & error */
+.fc-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.fc-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: fc-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.fc-spinner--sm {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes fc-spin {
+  to { transform: rotate(360deg); }
+}
+
+.fc-error {
+  background: #fff0f0;
+  border: 1px solid #ffc5c5;
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin: 0;
+}
+
+.fc-empty {
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* ── Progress bar ── */
+.fc-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fc-progress-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: #e5ecf7;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fc-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1f5eff, #09a381);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.fc-progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Flashcard ── */
+.fc-review {
+  display: grid;
+  gap: 16px;
+}
+
+.fc-card {
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(23, 50, 91, 0.10);
+  transition: box-shadow 0.2s ease;
+}
+
+.fc-card:hover {
+  box-shadow: 0 8px 32px rgba(23, 50, 91, 0.14);
+}
+
+.fc-card-inner {
+  display: grid;
+}
+
+.fc-card-face {
+  padding: 28px 28px 24px;
+  display: grid;
+  gap: 14px;
+}
+
+.fc-card-front {
+  background: linear-gradient(135deg, #eef4ff 0%, #f7faff 100%);
+  border: 1px solid #c2d8ff;
+  border-radius: 18px;
+}
+
+.fc-card-back {
+  background: linear-gradient(135deg, #eafff6 0%, #f7fffc 100%);
+  border: 1px solid #a3e6cf;
+  border-radius: 18px;
+  animation: fc-fade-in 0.25s ease;
+}
+
+@keyframes fc-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fc-card-lang-badge {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+.fc-card-ja {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.65;
+  color: #17325b;
+  font-weight: 500;
+}
+
+.fc-card-en {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #0d4d35;
+}
+
+/* ── Reveal button ── */
+.fc-reveal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 15px;
+  width: fit-content;
+  transition: opacity 0.15s;
+}
+
+.fc-reveal-btn:hover {
+  opacity: 0.88;
+}
+
+/* ── Answer action buttons ── */
+.fc-answer-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fc-btn-remembered,
+.fc-btn-forgot {
+  flex: 1;
+  min-width: 130px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.fc-btn-remembered:hover,
+.fc-btn-forgot:hover {
+  opacity: 0.88;
+}
+
+.fc-btn-remembered:active,
+.fc-btn-forgot:active {
+  transform: scale(0.97);
+}
+
+.fc-btn-remembered {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #fff;
+}
+
+.fc-btn-forgot {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: #fff;
+}
+
+.fc-btn-remembered:disabled,
+.fc-btn-forgot:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Complete state ── */
+.fc-complete {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.fc-complete-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.fc-complete-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ── Add form ── */
+.fc-add-form {
+  display: grid;
+  gap: 14px;
+}
+
+.fc-field {
+  display: grid;
+  gap: 6px;
+}
+
+.fc-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.fc-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 11px 20px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1f5eff, #0d4bd8);
+  color: #fff;
+  width: 100%;
+  transition: opacity 0.15s;
+}
+
+.fc-add-btn:hover {
+  opacity: 0.88;
+}
+
+/* ── Search ── */
+.fc-search-wrap {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.fc-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.fc-search-input {
+  padding-left: 38px !important;
+}
+
+/* ── Card list ── */
+.fc-card-list {
+  display: grid;
+  gap: 10px;
+}
+
+.fc-list-card {
+  border: 1px solid #d9e2f2;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fbfdff;
+  display: grid;
+  gap: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.fc-list-card:hover {
+  border-color: #b5ceff;
+  box-shadow: 0 2px 12px rgba(23, 50, 91, 0.07);
+}
+
+.fc-list-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc-list-date {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.fc-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-saving-badge {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fc-error-badge {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.fc-sm2-toggle {
+  background: #eef3fa;
+  color: #4a6080;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fc-delete-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+  background: #fff0f0;
+  color: #dc2626;
+  border: 1px solid #ffc5c5;
+  transition: background 0.15s;
+}
+
+.fc-delete-btn:hover {
+  background: #ffe0e0;
+}
+
+.fc-delete-btn:disabled {
+  opacity: 0.5;
+}
+
+.fc-list-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.fc-list-field {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.fc-list-field-label {
+  font-size: 18px;
+  padding-top: 8px;
+  line-height: 1;
+}
+
+/* ── SM-2 info ── */
+.fc-sm2-info {
+  background: #f4f8ff;
+  border: 1px solid #d4e2ff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  animation: fc-fade-in 0.2s ease;
+}
+
+.fc-sm2-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.fc-sm2-item {
+  display: grid;
+  gap: 2px;
+}
+
+.fc-sm2-key {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fc-sm2-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: #17325b;
+}
+
+/* ── Pagination ── */
+.fc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.fc-page-btn {
+  background: #e6edf8;
+  color: #17325b;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.fc-page-btn:hover:not(:disabled) {
+  background: #d4e0f5;
+}
+
+.fc-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fc-page-info {
+  font-size: 13px;
 }

@@ -73,8 +73,14 @@ export function FlashcardsReviewClient() {
   const [saveErrorById, setSaveErrorById] = useState<Record<string, string>>({});
   const [deletingById, setDeletingById] = useState<Record<string, boolean>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+  const [expandedSm2, setExpandedSm2] = useState<Record<string, boolean>>({});
 
   const current = queue[0] ?? null;
+
+  const progressPercent = useMemo(() => {
+    if (initialTotal <= 0) return 0;
+    return Math.round(((initialTotal - queue.length) / initialTotal) * 100);
+  }, [initialTotal, queue.length]);
 
   const progressText = useMemo(() => {
     if (initialTotal <= 0 || !current) {
@@ -295,11 +301,11 @@ export function FlashcardsReviewClient() {
         prev.map((item) =>
           item.id === cardId
             ? {
-                ...item,
-                en: json.item?.en ?? item.en,
-                ja: json.item?.ja ?? item.ja,
-                updated_at: json.item?.updated_at ?? item.updated_at
-              }
+              ...item,
+              en: json.item?.en ?? item.en,
+              ja: json.item?.ja ?? item.ja,
+              updated_at: json.item?.updated_at ?? item.updated_at
+            }
             : item
         )
       );
@@ -352,100 +358,218 @@ export function FlashcardsReviewClient() {
   };
 
   return (
-    <div className="grid">
-      <section className="panel">
-        <h2>フラッシュカード復習</h2>
-        {loadingQueue ? <p className="muted">復習キューを読み込み中...</p> : null}
-        {queueError ? <p className="muted">{queueError}</p> : null}
+    <div className="fc-page">
+      {/* ── 復習セクション ── */}
+      <section className="panel fc-review-panel">
+        <div className="fc-section-header">
+          <span className="fc-section-icon">🃏</span>
+          <h2 className="fc-section-title">フラッシュカード復習</h2>
+        </div>
+
+        {loadingQueue ? (
+          <div className="fc-loading">
+            <div className="fc-spinner" />
+            <p className="muted">復習キューを読み込み中...</p>
+          </div>
+        ) : null}
+
+        {queueError ? <p className="fc-error">{queueError}</p> : null}
 
         {!loadingQueue && !queueError && current ? (
-          <div className="flashcard-review">
-            <p className="muted">進捗: {progressText}</p>
-            <p className="flashcard-ja">{current.ja}</p>
-            {!revealed ? (
-              <button type="button" onClick={() => setRevealed(true)}>
-                答えを見る
-              </button>
-            ) : (
-              <>
-                <p className="flashcard-en">{current.en}</p>
-                <div className="flashcard-actions">
-                  <button type="button" onClick={() => void submitReview(true)} disabled={submitting}>
-                    覚えている
-                  </button>
-                  <button type="button" className="secondary" onClick={() => void submitReview(false)} disabled={submitting}>
-                    覚えていない
-                  </button>
+          <div className="fc-review">
+            {/* 進捗バー */}
+            <div className="fc-progress">
+              <div className="fc-progress-bar-wrap">
+                <div className="fc-progress-bar-fill" style={{ width: `${progressPercent}%` }} />
+              </div>
+              <span className="fc-progress-label">{progressText}</span>
+            </div>
+
+            {/* カード */}
+            <div className={`fc-card ${revealed ? "fc-card--revealed" : ""}`}>
+              <div className="fc-card-inner">
+                {/* 表面（日本語） */}
+                <div className="fc-card-face fc-card-front">
+                  <p className="fc-card-lang-badge">🇯🇵 日本語</p>
+                  <p className="fc-card-ja">{current.ja}</p>
+                  {!revealed ? (
+                    <button type="button" className="fc-reveal-btn" onClick={() => setRevealed(true)}>
+                      答えを見る
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                  ) : null}
                 </div>
-              </>
-            )}
+
+                {/* 裏面（英語） */}
+                {revealed ? (
+                  <div className="fc-card-face fc-card-back">
+                    <p className="fc-card-lang-badge">🇬🇧 English</p>
+                    <p className="fc-card-en">{current.en}</p>
+                    <div className="fc-answer-actions">
+                      <button
+                        type="button"
+                        className="fc-btn-remembered"
+                        onClick={() => void submitReview(true)}
+                        disabled={submitting}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        覚えている
+                      </button>
+                      <button
+                        type="button"
+                        className="fc-btn-forgot"
+                        onClick={() => void submitReview(false)}
+                        disabled={submitting}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                        覚えていない
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : null}
 
         {hasCompleted ? (
-          <div className="flashcard-complete">
-            <p>今日の復習は完了です。</p>
-            <p>
+          <div className="fc-complete">
+            <div className="fc-complete-icon">🎉</div>
+            <p className="fc-complete-title">今日の復習は完了です！</p>
+            <p className="muted">
               次回復習予定: <strong>{formatDateTime(nextDueAt)}</strong>
             </p>
           </div>
         ) : null}
       </section>
 
-      <section className="panel">
-        <h2>フラッシュカード追加</h2>
-        <form action="/api/flashcards" method="post" className="grid">
-          <label>
-            English
-            <textarea name="en" required rows={3} />
-          </label>
-          <label>
-            日本語訳（任意）
-            <textarea name="ja" rows={2} />
-          </label>
-          <button type="submit">追加</button>
+      {/* ── 追加セクション ── */}
+      <section className="panel fc-add-panel">
+        <div className="fc-section-header">
+          <span className="fc-section-icon">➕</span>
+          <h2 className="fc-section-title">カードを追加</h2>
+        </div>
+        <form action="/api/flashcards" method="post" className="fc-add-form">
+          <div className="fc-field">
+            <label className="fc-label" htmlFor="fc-add-en">
+              🇬🇧 English
+            </label>
+            <textarea id="fc-add-en" name="en" required rows={3} placeholder="英語フレーズを入力..." />
+          </div>
+          <div className="fc-field">
+            <label className="fc-label" htmlFor="fc-add-ja">
+              🇯🇵 日本語訳（任意）
+            </label>
+            <textarea id="fc-add-ja" name="ja" rows={2} placeholder="日本語訳を入力..." />
+          </div>
+          <button type="submit" className="fc-add-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            カードを追加
+          </button>
         </form>
       </section>
 
-      <section className="panel">
-        <h2>最近のカード</h2>
-        <div className="recent-search">
-          <label htmlFor="recent-card-search">検索</label>
+      {/* ── 最近のカードセクション ── */}
+      <section className="panel fc-list-panel">
+        <div className="fc-section-header">
+          <span className="fc-section-icon">📚</span>
+          <h2 className="fc-section-title">カード一覧</h2>
+          {recentTotal > 0 ? <span className="fc-count-badge">{recentTotal} 件</span> : null}
+        </div>
+
+        <div className="fc-search-wrap">
+          <svg className="fc-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
           <input
             id="recent-card-search"
             name="recent-card-search"
             type="search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="English / 日本語で検索"
+            placeholder="English / 日本語で検索..."
+            className="fc-search-input"
           />
         </div>
 
-        {loadingRecent ? <p className="muted">カード一覧を読み込み中...</p> : null}
-        {recentError ? <p className="muted">{recentError}</p> : null}
+        {loadingRecent ? (
+          <div className="fc-loading">
+            <div className="fc-spinner" />
+            <p className="muted">読み込み中...</p>
+          </div>
+        ) : null}
+        {recentError ? <p className="fc-error">{recentError}</p> : null}
 
-        {!loadingRecent && !recentError && recentCards.length === 0 ? <p className="muted">カードが見つかりません。</p> : null}
+        {!loadingRecent && !recentError && recentCards.length === 0 ? (
+          <div className="fc-empty">
+            <p className="muted">カードが見つかりません。</p>
+          </div>
+        ) : null}
 
         {!loadingRecent && !recentError && recentCards.length > 0 ? (
-          <div className="recent-card-list">
+          <div className="fc-card-list">
             {recentCards.map((card) => {
               const draft = draftById[card.id] ?? { en: card.en, ja: card.ja };
               const isSaving = Boolean(savingById[card.id]);
               const isDeleting = Boolean(deletingById[card.id]);
               const saveError = saveErrorById[card.id] ?? "";
+              const isExpanded = Boolean(expandedSm2[card.id]);
 
               return (
-                <article className="recent-card" key={card.id}>
-                  <div className="recent-card-header">
-                    <p className="muted">作成日: {formatDateTime(card.created_at)}</p>
-                    <button type="button" className="secondary" onClick={() => void deleteCard(card.id)} disabled={isSaving || isDeleting}>
-                      {isDeleting ? "削除中..." : "削除"}
-                    </button>
+                <article className="fc-list-card" key={card.id}>
+                  <div className="fc-list-card-header">
+                    <span className="fc-list-date">{formatDateTime(card.created_at)}</span>
+                    <div className="fc-list-header-actions">
+                      {isSaving ? (
+                        <span className="fc-saving-badge">保存中...</span>
+                      ) : !isSaving && saveError ? (
+                        <span className="fc-error-badge">{saveError}</span>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="fc-sm2-toggle"
+                        onClick={() => setExpandedSm2((prev) => ({ ...prev, [card.id]: !prev[card.id] }))}
+                      >
+                        {isExpanded ? "▲" : "▼"} SM-2
+                      </button>
+                      <button
+                        type="button"
+                        className="fc-delete-btn"
+                        onClick={() => void deleteCard(card.id)}
+                        disabled={isSaving || isDeleting}
+                        title="削除"
+                        aria-label="削除"
+                      >
+                        {isDeleting ? (
+                          <div className="fc-spinner fc-spinner--sm" />
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M9 6V4h6v2" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="recent-card-fields">
-                    <label>
-                      English
+                  <div className="fc-list-fields">
+                    <div className="fc-list-field">
+                      <span className="fc-list-field-label">🇬🇧</span>
                       <textarea
                         value={draft.en}
                         rows={2}
@@ -461,9 +585,9 @@ export function FlashcardsReviewClient() {
                         }}
                         disabled={isDeleting}
                       />
-                    </label>
-                    <label>
-                      日本語
+                    </div>
+                    <div className="fc-list-field">
+                      <span className="fc-list-field-label">🇯🇵</span>
                       <textarea
                         value={draft.ja}
                         rows={2}
@@ -479,43 +603,56 @@ export function FlashcardsReviewClient() {
                         }}
                         disabled={isDeleting}
                       />
-                    </label>
+                    </div>
                   </div>
 
-                  <div className="recent-card-sm2">
-                    <p>
-                      <strong>Repetition:</strong> {card.sm2 ? card.sm2.repetition : "未レビュー"}
-                    </p>
-                    <p>
-                      <strong>Interval(days):</strong> {card.sm2 ? card.sm2.intervalDays : "未レビュー"}
-                    </p>
-                    <p>
-                      <strong>Ease factor:</strong> {card.sm2 ? card.sm2.easeFactor.toFixed(2) : "未レビュー"}
-                    </p>
-                    <p>
-                      <strong>Next review:</strong> {card.sm2 ? formatDateTime(card.sm2.nextReviewAt) : "未レビュー"}
-                    </p>
-                  </div>
-
-                  <div className="recent-card-actions">
-                    {isSaving ? <p className="muted">保存中...</p> : null}
-                    {!isSaving && saveError ? <p className="muted">{saveError}</p> : null}
-                  </div>
+                  {isExpanded ? (
+                    <div className="fc-sm2-info">
+                      <div className="fc-sm2-grid">
+                        <div className="fc-sm2-item">
+                          <span className="fc-sm2-key">繰り返し回数</span>
+                          <span className="fc-sm2-val">{card.sm2 ? card.sm2.repetition : "—"}</span>
+                        </div>
+                        <div className="fc-sm2-item">
+                          <span className="fc-sm2-key">間隔 (日)</span>
+                          <span className="fc-sm2-val">{card.sm2 ? card.sm2.intervalDays : "—"}</span>
+                        </div>
+                        <div className="fc-sm2-item">
+                          <span className="fc-sm2-key">Ease</span>
+                          <span className="fc-sm2-val">{card.sm2 ? card.sm2.easeFactor.toFixed(2) : "—"}</span>
+                        </div>
+                        <div className="fc-sm2-item">
+                          <span className="fc-sm2-key">次回復習</span>
+                          <span className="fc-sm2-val">{card.sm2 ? formatDateTime(card.sm2.nextReviewAt) : "未レビュー"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </article>
               );
             })}
           </div>
         ) : null}
 
-        <div className="pagination-row">
-          <button type="button" className="secondary" onClick={() => setRecentOffset((prev) => Math.max(0, prev - PAGE_SIZE))} disabled={loadingRecent || !hasPrev}>
-            前へ
+        <div className="fc-pagination">
+          <button
+            type="button"
+            className="fc-page-btn"
+            onClick={() => setRecentOffset((prev) => Math.max(0, prev - PAGE_SIZE))}
+            disabled={loadingRecent || !hasPrev}
+          >
+            ← 前へ
           </button>
-          <p className="muted">
-            {recentTotal === 0 ? "0 件" : `${recentOffset + 1}-${Math.min(recentOffset + recentCards.length, recentTotal)} / ${recentTotal} 件`}
-          </p>
-          <button type="button" className="secondary" onClick={() => setRecentOffset((prev) => prev + PAGE_SIZE)} disabled={loadingRecent || !hasNext}>
-            次へ
+          <span className="fc-page-info muted">
+            {recentTotal === 0 ? "0 件" : `${recentOffset + 1}–${Math.min(recentOffset + recentCards.length, recentTotal)} / ${recentTotal}`}
+          </span>
+          <button
+            type="button"
+            className="fc-page-btn"
+            onClick={() => setRecentOffset((prev) => prev + PAGE_SIZE)}
+            disabled={loadingRecent || !hasNext}
+          >
+            次へ →
           </button>
         </div>
       </section>
