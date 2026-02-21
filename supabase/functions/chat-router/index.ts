@@ -8,8 +8,7 @@ import { buildAskContextTurns } from "../../../packages/shared/src/chat-context.
 type ChatMode = "translate" | "ask" | "add_flashcard";
 type AskStreamDonePayload = { reply: string; threadId: string };
 const ASK_CONTEXT_HISTORY_TURNS = 5;
-const ASK_CONTEXT_MAX_MESSAGES = ASK_CONTEXT_HISTORY_TURNS * 2 + 1; // 5 turns (10 messages) + latest user message
-const ASK_CONTEXT_MAX_CHARS = 3000;
+const ASK_CONTEXT_MAX_CHARS = 6000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -89,7 +88,14 @@ Deno.serve(async (req) => {
     const history = [...(historyRows ?? [])]
       .filter((row) => row.id !== userMessage.id)
       .reverse();
-    const askContents = buildAskContents(history, message, ASK_CONTEXT_MAX_MESSAGES, ASK_CONTEXT_MAX_CHARS);
+    const askContents = buildAskContents(history, message, ASK_CONTEXT_HISTORY_TURNS, ASK_CONTEXT_MAX_CHARS);
+    const contextChars = askContents.reduce((sum, content) => {
+      const text = content.parts.map((part) => ("text" in part && part.text ? String(part.text) : "")).join("");
+      return sum + text.length;
+    }, 0);
+    console.log(
+      `[chat-router] ask-context threadId=${threadId} historyRows=${history.length} selectedMessages=${askContents.length} maxHistoryTurns=${ASK_CONTEXT_HISTORY_TURNS} contextChars=${contextChars} maxChars=${ASK_CONTEXT_MAX_CHARS}`
+    );
 
     return streamAskResponse({
       askContents,
