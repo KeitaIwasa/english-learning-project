@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
-import { readFileSync } from "node:fs";
-import os from "node:os";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -37,7 +36,10 @@ async function main() {
 }
 
 async function connectWithFallback() {
-  const urls = [process.env.PW_CDP_URL, "http://127.0.0.1:9222", `http://${findWindowsHostIp()}:9222`].filter(Boolean);
+  const winHost = findWindowsHostFromIpRoute();
+  const urls = [process.env.PW_CDP_URL, winHost ? `http://${winHost}:9223` : null, "http://127.0.0.1:9222"].filter(
+    Boolean
+  );
   let lastError;
 
   for (const url of urls) {
@@ -52,23 +54,15 @@ async function connectWithFallback() {
   throw lastError ?? new Error("Failed to connect CDP");
 }
 
-function findWindowsHostIp() {
-  const fromResolv = findNameserverFromResolvConf();
-  if (fromResolv) {
-    return fromResolv;
-  }
-  const iface = Object.values(os.networkInterfaces()).flat().find((i) => i?.family === "IPv4" && !i.internal);
-  return iface?.address ?? "127.0.0.1";
-}
-
-function findNameserverFromResolvConf() {
+function findWindowsHostFromIpRoute() {
   try {
-    const content = readFileSync("/etc/resolv.conf", "utf8");
-    const line = content
+    const output = execSync("ip route", { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
+    const line = output
       .split("\n")
       .map((v) => v.trim())
-      .find((v) => v.startsWith("nameserver "));
-    return line?.replace("nameserver ", "").trim();
+      .find((v) => v.startsWith("default "));
+    const match = line?.match(/\bvia\s+([0-9.]+)/);
+    return match?.[1] ?? null;
   } catch {
     return null;
   }

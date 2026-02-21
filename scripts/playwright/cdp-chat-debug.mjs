@@ -1,15 +1,15 @@
 import fs from "node:fs/promises";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 
-const cdpUrl = process.env.PW_CDP_URL ?? "http://127.0.0.1:9222";
 const appBaseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
 const outDir = path.resolve(`tests/screenshots/cdp-debug-${Date.now()}`);
 const authFile = path.resolve("tests/.auth/user.json");
 
 async function main() {
   await fs.mkdir(outDir, { recursive: true });
-  const browser = await chromium.connectOverCDP(cdpUrl);
+  const browser = await connectWithFallback();
   const context = browser.contexts()[0] ?? (await browser.newContext());
   const page = context.pages()[0] ?? (await context.newPage());
 
@@ -47,6 +47,39 @@ async function main() {
   console.log(`[cdp-chat-debug] screenshots: ${outDir}`);
 
   await browser.close();
+}
+
+async function connectWithFallback() {
+  const winHost = findWindowsHostFromIpRoute();
+  const urls = [process.env.PW_CDP_URL, winHost ? `http://${winHost}:9223` : null, "http://127.0.0.1:9222"].filter(
+    Boolean
+  );
+
+  let lastError;
+  for (const url of urls) {
+    try {
+      console.log(`[cdp-chat-debug] Connecting to ${url}`);
+      return await chromium.connectOverCDP(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("Failed to connect CDP");
+}
+
+function findWindowsHostFromIpRoute() {
+  try {
+    const output = execSync("ip route", { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
+    const line = output
+      .split("\n")
+      .map((v) => v.trim())
+      .find((v) => v.startsWith("default "));
+    const match = line?.match(/\bvia\s+([0-9.]+)/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 main().catch((error) => {
