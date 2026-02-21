@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { chatRouterRequestSchema } from "@english/shared";
+import { chatRouterRequestSchema } from "@/lib/schemas";
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();

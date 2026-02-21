@@ -8,3 +8,9 @@ dist
 coverage
 apps/extension/dist
 apps/extension/src/config.js
+
+# build artifacts
+*.tsbuildinfo
+
+# supabase local temp
+supabase/.temp/

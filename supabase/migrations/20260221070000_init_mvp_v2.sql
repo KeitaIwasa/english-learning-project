@@ -106,14 +106,17 @@ begin
 end;
 $$;
 
+drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
 before update on public.profiles
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_flashcards_updated_at on public.flashcards;
 create trigger set_flashcards_updated_at
 before update on public.flashcards
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_chat_threads_updated_at on public.chat_threads;
 create trigger set_chat_threads_updated_at
 before update on public.chat_threads
 for each row execute function public.set_updated_at();
@@ -127,42 +130,50 @@ alter table public.chat_learning_signals enable row level security;
 alter table public.learning_profiles enable row level security;
 alter table public.reading_passages enable row level security;
 
-create policy if not exists "profiles_owner_all" on public.profiles
+drop policy if exists "profiles_owner_all" on public.profiles;
+create policy "profiles_owner_all" on public.profiles
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "flashcards_owner_all" on public.flashcards
+drop policy if exists "flashcards_owner_all" on public.flashcards;
+create policy "flashcards_owner_all" on public.flashcards
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "flashcard_reviews_owner_all" on public.flashcard_reviews
+drop policy if exists "flashcard_reviews_owner_all" on public.flashcard_reviews;
+create policy "flashcard_reviews_owner_all" on public.flashcard_reviews
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "chat_threads_owner_all" on public.chat_threads
+drop policy if exists "chat_threads_owner_all" on public.chat_threads;
+create policy "chat_threads_owner_all" on public.chat_threads
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "chat_messages_owner_all" on public.chat_messages
+drop policy if exists "chat_messages_owner_all" on public.chat_messages;
+create policy "chat_messages_owner_all" on public.chat_messages
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "chat_learning_signals_owner_all" on public.chat_learning_signals
+drop policy if exists "chat_learning_signals_owner_all" on public.chat_learning_signals;
+create policy "chat_learning_signals_owner_all" on public.chat_learning_signals
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "learning_profiles_owner_all" on public.learning_profiles
+drop policy if exists "learning_profiles_owner_all" on public.learning_profiles;
+create policy "learning_profiles_owner_all" on public.learning_profiles
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-create policy if not exists "reading_passages_owner_all" on public.reading_passages
+drop policy if exists "reading_passages_owner_all" on public.reading_passages;
+create policy "reading_passages_owner_all" on public.reading_passages
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
