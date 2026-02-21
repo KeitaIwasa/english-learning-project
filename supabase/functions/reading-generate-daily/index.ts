@@ -235,7 +235,7 @@ async function generateReading(params: {
   const generated = await generateWithGemini({
     model: appEnv.geminiReasoningModel(),
     instruction:
-      "You are an English learning content generator. Return strict JSON only. Passage should be around 180-220 words and natural for reading aloud.",
+      "あなたは英語学習コンテンツ生成アシスタントです。必ずJSONのみを返してください。本文は180〜220語程度で、音読しやすい自然な英文にしてください。",
     input: JSON.stringify(prompt),
     responseMimeType: "application/json"
   });

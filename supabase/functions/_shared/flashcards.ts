@@ -18,7 +18,7 @@ export async function addFlashcard(params: {
     const translated = await generateWithGemini({
       model: appEnv.geminiFastModel(),
       instruction:
-        "Translate the user's English sentence into natural Japanese. Output only Japanese translation without any extra text.",
+        "ユーザーが入力した英語文を自然な日本語に翻訳してください。余計な説明は付けず、日本語の翻訳結果のみを出力してください。",
       input: en
     });
     ja = translated.text.trim();

@@ -2,7 +2,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
 import { addFlashcard } from "../_shared/flashcards.ts";
-import { generateWithGemini, streamWithGemini } from "../_shared/gemini.ts";
+import { streamWithGemini } from "../_shared/gemini.ts";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
 const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 exchanges (user+assistant)
@@ -40,14 +40,9 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "translate") {
-      const translated = await generateWithGemini({
-        model: appEnv.geminiFastModel(),
-        instruction:
-          "You are a translation engine. Detect if input is Japanese or English. Translate to the opposite language. Output translation only.",
-        input: message
+      return streamTranslateResponse({
+        message
       });
-
-      return json({ translatedText: translated.text.trim() });
     }
 
     if (mode === "add_flashcard") {
@@ -106,6 +101,50 @@ Deno.serve(async (req) => {
     return json({ error: String(error) }, 500);
   }
 });
+
+function streamTranslateResponse(params: { message: string }) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const writeEvent = (event: "delta" | "done" | "error", payload: unknown) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
+      };
+
+      const process = async () => {
+        try {
+          let answerText = "";
+          for await (const chunk of streamWithGemini({
+            model: appEnv.geminiFastModel(),
+            instruction:
+              "あなたは翻訳エンジンです。入力が日本語か英語かを判定し、反対言語へ翻訳してください。余計な説明は付けず、翻訳結果のみを出力してください。",
+            input: params.message
+          })) {
+            answerText += chunk;
+            writeEvent("delta", { text: chunk });
+          }
+
+          writeEvent("done", { reply: answerText.trim() });
+        } catch (error) {
+          console.error(error);
+          writeEvent("error", { message: String(error) });
+        } finally {
+          controller.close();
+        }
+      };
+
+      void process();
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive"
+    }
+  });
+}
 
 async function ensureThread(serviceClient: any, userId: string, chatId: string | null, seedMessage: string) {
   if (chatId) {
@@ -181,38 +220,6 @@ function buildAskContext(
   return selected.reverse().join("\n");
 }
 
-function parseStructuredAsk(text: string): {
-  reply: string;
-  corrections: string[];
-  reviewHints: string[];
-  signals: Array<{ key: string; weight: number }>;
-} {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    const json = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-    return {
-      reply: String(json.reply ?? ""),
-      corrections: Array.isArray(json.corrections) ? json.corrections.map(String) : [],
-      reviewHints: Array.isArray(json.reviewHints) ? json.reviewHints.map(String) : [],
-      signals: Array.isArray(json.signals)
-        ? json.signals
-            .map((raw: unknown) => {
-              const signal = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-              return { key: String(signal.key ?? ""), weight: Number(signal.weight ?? 0.5) };
-            })
-            .filter((s: { key: string; weight: number }) => s.key)
-        : []
-    };
-  } catch {
-    return {
-      reply: text,
-      corrections: [],
-      reviewHints: [],
-      signals: []
-    };
-  }
-}
-
 function deriveSignals(message: string, reply: string): Array<{ key: string; weight: number }> {
   const text = `${message}\n${reply}`.toLowerCase();
   const rules: Array<{ key: string; pattern: RegExp }> = [
@@ -247,29 +254,26 @@ function streamAskResponse(params: {
           for await (const chunk of streamWithGemini({
             model: appEnv.geminiFastModel(),
             instruction:
-              "You are an English tutor. Return strict JSON: {\"reply\": string, \"corrections\": string[], \"reviewHints\": string[], \"signals\": [{\"key\": string, \"weight\": number}]}. Use Japanese explanations for learning hints.",
-            input: `Conversation history:\n${params.historyText}\n\nCurrent user message:\n${params.message}`,
-            responseMimeType: "application/json"
+              "あなたは英語学習のチューターです。学習の説明は自然な日本語で行い、ユーザーの最新メッセージに集中して回答してください。",
+            input: `会話履歴:\n${params.historyText}\n\n現在のユーザーメッセージ:\n${params.message}`
           })) {
             answerText += chunk;
             writeEvent("delta", { text: chunk });
           }
 
-          const structured = parseStructuredAsk(answerText);
           const { error: assistantMessageError } = await params.serviceClient.from("chat_messages").insert({
             thread_id: params.threadId,
             user_id: params.userId,
             role: "assistant",
             mode: "ask",
-            content: structured.reply
+            content: answerText
           });
 
           if (assistantMessageError) {
             throw assistantMessageError;
           }
 
-          const signals =
-            structured.signals.length > 0 ? structured.signals : deriveSignals(params.message, structured.reply);
+          const signals = deriveSignals(params.message, answerText);
           if (signals.length > 0) {
             const { error: signalInsertError } = await params.serviceClient.from("chat_learning_signals").insert(
               signals.map((signal) => ({
@@ -286,11 +290,7 @@ function streamAskResponse(params: {
             }
           }
 
-          writeEvent("done", {
-            reply: structured.reply,
-            corrections: structured.corrections,
-            reviewHints: structured.reviewHints
-          });
+          writeEvent("done", { reply: answerText });
         } catch (error) {
           console.error(error);
           writeEvent("error", { message: String(error) });

@@ -7,7 +7,6 @@ import remarkGfm from "remark-gfm";
 type ChatMode = "translate" | "ask" | "add_flashcard";
 
 type ChatResponse = {
-  translatedText?: string;
   reply?: string;
   flashcardId?: string;
   en?: string;
@@ -50,6 +49,8 @@ const modeLabels: Record<ChatMode, string> = {
   ask: "質問・添削",
   add_flashcard: "カード追加"
 };
+
+const streamableModes: ChatMode[] = ["ask", "translate"];
 
 export function ChatClient() {
   const [mode, setMode] = useState<ChatMode>("ask");
@@ -143,7 +144,7 @@ export function ChatClient() {
     const assistantId = crypto.randomUUID();
 
     try {
-      if (currentMode === "ask") {
+      if (streamableModes.includes(currentMode)) {
         setMessages((prev) => [...prev, { id: assistantId, role: "assistant", text: "", mode: currentMode }]);
       }
 
@@ -153,100 +154,96 @@ export function ChatClient() {
         body: JSON.stringify({ mode: currentMode, message: trimmed })
       });
 
-      if (currentMode === "ask") {
-        const contentType = res.headers.get("content-type") ?? "";
-        if (contentType.includes("text/event-stream") && res.body) {
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let streamedReply = "";
-          let donePayload: AskStreamDonePayload | null = null;
+      const contentType = res.headers.get("content-type") ?? "";
+      if (streamableModes.includes(currentMode) && contentType.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamedReply = "";
+        let donePayload: AskStreamDonePayload | null = null;
 
-          const updateAssistant = (patch: Partial<UiMessage>) => {
-            setMessages((prev) =>
-              prev.map((item) => {
-                if (item.id !== assistantId) {
-                  return item;
-                }
-                return { ...item, ...patch };
-              })
-            );
-          };
-
-          const consumeEventBlock = (block: string) => {
-            const lines = block.split("\n");
-            const eventLine = lines.find((line) => line.startsWith("event:"));
-            const dataLine = lines.find((line) => line.startsWith("data:"));
-            if (!eventLine || !dataLine) {
-              return;
-            }
-
-            const event = eventLine.slice(6).trim();
-            const rawData = dataLine.slice(5).trim();
-            let payload: unknown;
-            try {
-              payload = JSON.parse(rawData);
-            } catch {
-              return;
-            }
-
-            if (event === "delta") {
-              const json = payload as { text?: string };
-              const delta = String(json.text ?? "");
-              if (!delta) {
-                return;
+        const updateAssistant = (patch: Partial<UiMessage>) => {
+          setMessages((prev) =>
+            prev.map((item) => {
+              if (item.id !== assistantId) {
+                return item;
               }
-              streamedReply += delta;
-              updateAssistant({ text: streamedReply });
-              return;
-            }
+              return { ...item, ...patch };
+            })
+          );
+        };
 
-            if (event === "done") {
-              donePayload = payload as AskStreamDonePayload;
-              return;
-            }
-
-            if (event === "error") {
-              const json = payload as { message?: string };
-              updateAssistant({ text: `エラー: ${json.message ?? "stream error"}` });
-            }
-          };
-
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) {
-              break;
-            }
-            buffer += decoder.decode(value, { stream: true });
-            const blocks = buffer.split("\n\n");
-            buffer = blocks.pop() ?? "";
-            for (const block of blocks) {
-              consumeEventBlock(block);
-            }
+        const consumeEventBlock = (block: string) => {
+          const lines = block.split("\n");
+          const eventLine = lines.find((line) => line.startsWith("event:"));
+          const dataLine = lines.find((line) => line.startsWith("data:"));
+          if (!eventLine || !dataLine) {
+            return;
           }
 
-          buffer += decoder.decode();
-          if (buffer.trim()) {
-            consumeEventBlock(buffer);
+          const event = eventLine.slice(6).trim();
+          const rawData = dataLine.slice(5).trim();
+          let payload: unknown;
+          try {
+            payload = JSON.parse(rawData);
+          } catch {
+            return;
           }
 
-          const finalized: AskStreamDonePayload = donePayload ?? {};
-          const finalReply = finalized.reply ?? streamedReply ?? "";
-          updateAssistant({
-            text: finalReply || "応答を取得できませんでした。",
-            corrections: finalized.corrections ?? [],
-            reviewHints: finalized.reviewHints ?? []
-          });
-          return;
+          if (event === "delta") {
+            const json = payload as { text?: string };
+            const delta = String(json.text ?? "");
+            if (!delta) {
+              return;
+            }
+            streamedReply += delta;
+            updateAssistant({ text: streamedReply });
+            return;
+          }
+
+          if (event === "done") {
+            donePayload = payload as AskStreamDonePayload;
+            return;
+          }
+
+          if (event === "error") {
+            const json = payload as { message?: string };
+            updateAssistant({ text: `エラー: ${json.message ?? "stream error"}` });
+          }
+        };
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const blocks = buffer.split("\n\n");
+          buffer = blocks.pop() ?? "";
+          for (const block of blocks) {
+            consumeEventBlock(block);
+          }
         }
+
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          consumeEventBlock(buffer);
+        }
+
+        const finalized: AskStreamDonePayload = donePayload ?? {};
+        const finalReply = finalized.reply ?? streamedReply ?? "";
+        updateAssistant({
+          text: finalReply || "応答を取得できませんでした。",
+          corrections: currentMode === "ask" ? (finalized.corrections ?? []) : [],
+          reviewHints: currentMode === "ask" ? (finalized.reviewHints ?? []) : []
+        });
+        return;
       }
 
       const json = (await res.json()) as ChatResponse;
 
       let assistantText = "応答を取得できませんでした。";
-      if (currentMode === "translate" && json.translatedText) {
-        assistantText = json.translatedText;
-      } else if (currentMode === "add_flashcard" && json.flashcardId) {
+      if (currentMode === "add_flashcard" && json.flashcardId) {
         assistantText = `フラッシュカードに追加しました。\nEN: ${json.en ?? "-"}\nJA: ${json.ja ?? "-"}`;
       } else if (json.reply) {
         assistantText = json.reply;
@@ -255,7 +252,7 @@ export function ChatClient() {
       }
 
       const assistantMessage: UiMessage = {
-        id: currentMode === "ask" ? assistantId : crypto.randomUUID(),
+        id: streamableModes.includes(currentMode) ? assistantId : crypto.randomUUID(),
         role: "assistant",
         text: assistantText,
         mode: currentMode,
@@ -264,14 +261,14 @@ export function ChatClient() {
       };
 
       setMessages((prev) => {
-        if (currentMode !== "ask") {
+        if (!streamableModes.includes(currentMode)) {
           return [...prev, assistantMessage];
         }
         return prev.map((item) => (item.id === assistantId ? assistantMessage : item));
       });
     } catch (error) {
       setMessages((prev) => {
-        if (currentMode !== "ask") {
+        if (!streamableModes.includes(currentMode)) {
           return [
             ...prev,
             {
