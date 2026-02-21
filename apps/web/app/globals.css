@@ -264,23 +264,8 @@ ul {
   margin: 10px 0 12px;
 }
 
-.reading-audio-button {
-  width: 38px;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid #c8d8f8;
-}
-
-.reading-audio-button:hover:enabled {
-  background: #dfe9ff;
-}
-
-.reading-audio-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.reading-audio-player {
+  width: min(480px, 100%);
 }
 
 .markdown-body > :last-child {

@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Volume2 } from "lucide-react";
+import { useMemo } from "react";
 
 type ReadingAudioButtonProps = {
   audioBase64: string | null;
@@ -10,7 +9,6 @@ type ReadingAudioButtonProps = {
 };
 
 export function ReadingAudioButton({ audioBase64, audioMimeType, audioVoice }: ReadingAudioButtonProps) {
-  const [error, setError] = useState("");
   const canPlay = Boolean(audioBase64 && audioMimeType);
 
   const dataUrl = useMemo(() => {
@@ -20,34 +18,15 @@ export function ReadingAudioButton({ audioBase64, audioMimeType, audioVoice }: R
     return `data:${audioMimeType};base64,${audioBase64}`;
   }, [audioBase64, audioMimeType]);
 
-  const play = async () => {
-    if (!dataUrl) {
-      return;
-    }
-
-    try {
-      setError("");
-      const audio = new Audio(dataUrl);
-      await audio.play();
-    } catch {
-      setError("音声を再生できませんでした。");
-    }
-  };
-
   return (
     <div className="reading-audio-wrap">
-      <button
-        type="button"
-        className="secondary reading-audio-button"
-        onClick={play}
-        disabled={!canPlay}
-        aria-label="音声を再生"
-        title={canPlay ? `音声を再生 (${audioVoice ?? "default"})` : "音声は未生成です"}
-      >
-        <Volume2 size={18} />
-      </button>
+      {canPlay ? (
+        <audio className="reading-audio-player" controls preload="none">
+          <source src={dataUrl} type={audioMimeType ?? "audio/wav"} />
+          お使いのブラウザは音声再生に対応していません。
+        </audio>
+      ) : null}
       {!canPlay ? <p className="muted">音声は未生成です。</p> : null}
-      {error ? <p className="muted">{error}</p> : null}
     </div>
   );
 }
