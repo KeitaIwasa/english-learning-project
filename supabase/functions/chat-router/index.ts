@@ -3,6 +3,7 @@ import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
 import { addFlashcard } from "../_shared/flashcards.ts";
 import { generateWithGemini, streamWithGemini, type GeminiContent } from "../_shared/gemini.ts";
+import { buildAskContextTurns } from "../../../packages/shared/src/chat-context.ts";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
 type AskStreamDonePayload = { reply: string; threadId: string };
@@ -194,58 +195,15 @@ function parseFlashcardMessage(message: string): { en: string; ja?: string } {
 function buildAskContents(
   rows: Array<{ role: string; content: string }>,
   latestMessage: string,
-  maxMessages: number,
+  maxHistoryTurns: number,
   maxChars: number
 ): GeminiContent[] {
-  const turns = rows
-    .map((row) => ({
-      role: row.role === "assistant" ? ("model" as const) : ("user" as const),
-      text: String(row.content ?? "").trim()
-    }))
-    .filter((turn) => turn.text.length > 0);
-
-  turns.push({
-    role: "user",
-    text: latestMessage
-  });
-
-  const recent = turns.slice(-maxMessages);
-  const selected: Array<{ role: "user" | "model"; text: string }> = [];
-  let usedChars = 0;
-
-  for (let index = recent.length - 1; index >= 0; index -= 1) {
-    const turn = recent[index];
-    if (!turn.text.trim()) {
-      continue;
-    }
-
-    const withNewline = selected.length > 0 ? turn.text.length + 1 : turn.text.length;
-    if (usedChars + withNewline <= maxChars) {
-      selected.push(turn);
-      usedChars += withNewline;
-      continue;
-    }
-
-    if (selected.length === 0) {
-      selected.push({
-        role: turn.role,
-        text: turn.text.slice(-maxChars)
-      });
-    }
-    break;
-  }
-
-  const merged: Array<{ role: "user" | "model"; text: string }> = [];
-  for (const turn of selected.reverse()) {
-    const last = merged.at(-1);
-    if (last && last.role === turn.role) {
-      last.text = `${last.text}\n${turn.text}`;
-      continue;
-    }
-    merged.push({ role: turn.role, text: turn.text });
-  }
-
-  return merged.map((turn) => ({
+  return buildAskContextTurns({
+    rows,
+    latestMessage,
+    maxHistoryTurns,
+    maxTotalChars: maxChars
+  }).map((turn) => ({
     role: turn.role,
     parts: [{ text: turn.text }]
   }));
