@@ -19,6 +19,12 @@ ncat.exe --listen --keep-open --sh-exec "relay9222.bat" 9223
 
 ## 2) Save auth state from WSL
 
+First, verify relay connectivity:
+
+```bash
+npm run test:e2e:preflight-cdp
+```
+
 ```bash
 npm run test:e2e:setup-auth
 ```

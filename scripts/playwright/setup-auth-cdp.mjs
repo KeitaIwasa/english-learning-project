@@ -37,21 +37,30 @@ async function main() {
 
 async function connectWithFallback() {
   const winHost = findWindowsHostFromIpRoute();
-  const urls = [process.env.PW_CDP_URL, winHost ? `http://${winHost}:9223` : null, "http://127.0.0.1:9222"].filter(
-    Boolean
+  const urls = Array.from(
+    new Set([process.env.PW_CDP_URL, winHost ? `http://${winHost}:9223` : null, "http://127.0.0.1:9222"].filter(Boolean))
   );
   let lastError;
 
   for (const url of urls) {
-    try {
-      console.log(`[setup-auth-cdp] Connecting to ${url}`);
-      return await chromium.connectOverCDP(url);
-    } catch (error) {
-      lastError = error;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        console.log(`[setup-auth-cdp] Connecting to ${url} attempt=${attempt}`);
+        return await chromium.connectOverCDP(url);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await delay(500);
+        }
+      }
     }
   }
 
   throw lastError ?? new Error("Failed to connect CDP");
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function findWindowsHostFromIpRoute() {
