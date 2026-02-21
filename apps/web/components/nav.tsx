@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { UserMenu } from "@/components/user-menu";
+import { NavLinks } from "@/components/nav-links";
 
 export async function AppNav() {
   const supabase = await createSupabaseServerClient();
@@ -9,10 +9,7 @@ export async function AppNav() {
   return (
     <header className="app-header">
       <nav className="app-nav">
-        <Link href="/">Home</Link>
-        <Link href="/flashcards">Flashcards</Link>
-        <Link href="/reading">Reading</Link>
-        <Link href="/chat">Chat</Link>
+        <NavLinks />
       </nav>
       <div className="app-header-right">{data.user ? <UserMenu email={data.user.email ?? ""} /> : null}</div>
     </header>
