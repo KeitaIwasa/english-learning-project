@@ -4,7 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { AudioLines, BookOpenText, House, MessageCircle, RectangleHorizontal } from "lucide-react";
+import { AudioLines, BookOpenText, MessageCircle, RectangleHorizontal } from "lucide-react";
 
 type NavItem = {
   href: Route;
@@ -13,10 +13,9 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Home", icon: House },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/flashcards", label: "Flashcards", icon: RectangleHorizontal },
   { href: "/reading", label: "Reading", icon: BookOpenText },
-  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/native-fixer", label: "Native Fixer", icon: AudioLines }
 ];
 
