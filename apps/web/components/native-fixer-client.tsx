@@ -1,7 +1,8 @@
 "use client";
 
-import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, CheckCircle2, CircleAlert, CloudUpload, LoaderCircle, Plus } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type JobStatus = "uploaded" | "queued" | "processing" | "completed" | "failed";
 
@@ -63,6 +64,8 @@ export function NativeFixerClient() {
   const [titleDraft, setTitleDraft] = useState("");
   const [modal, setModal] = useState<ModalState | null>(null);
   const [addingCard, setAddingCard] = useState(false);
+  const [draggingFile, setDraggingFile] = useState(false);
+  const dragDepthRef = useRef(0);
 
   const selectedHistory = useMemo(() => items.find((item) => item.id === selectedId) ?? null, [items, selectedId]);
 
@@ -92,13 +95,79 @@ export function NativeFixerClient() {
     return () => clearInterval(timer);
   }, [detail]);
 
-  const onUploadFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || uploading) {
+  useEffect(() => {
+    const hasFilePayload = (event: DragEvent) => {
+      const types = Array.from(event.dataTransfer?.types ?? []);
+      return types.includes("Files");
+    };
+
+    const onDragEnter = (event: DragEvent) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setDraggingFile(true);
+    };
+
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+      setDraggingFile(true);
+    };
+
+    const onDragLeave = (event: DragEvent) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+      event.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) {
+        setDraggingFile(false);
+      }
+    };
+
+    const onDrop = (event: DragEvent) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setDraggingFile(false);
+      const file = event.dataTransfer?.files?.[0];
+      if (file) {
+        void uploadAudioFile(file);
+      }
+    };
+
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  const uploadAudioFile = async (file: File) => {
+    if (uploading) {
       return;
     }
-    event.target.value = "";
     setErrorMessage("");
+
+    if (!isSupportedAudioFile(file)) {
+      setErrorMessage("対応していない音声形式です（MP3 / WAV / AAC / M4A）。");
+      return;
+    }
 
     if (file.size > MAX_FILE_SIZE_BYTES) {
       setErrorMessage("ファイルサイズは250MB以下にしてください。");
@@ -120,24 +189,25 @@ export function NativeFixerClient() {
       });
       const createJson = (await createRes.json()) as {
         jobId?: string;
+        uploadPath?: string;
+        token?: string;
         signedUploadUrl?: string;
         error?: string;
       };
 
-      if (!createRes.ok || !createJson.jobId || !createJson.signedUploadUrl) {
+      if (!createRes.ok || !createJson.jobId || !createJson.uploadPath || !createJson.token) {
         throw new Error(createJson.error ?? "ジョブ作成に失敗しました。");
       }
 
-      const uploadRes = await fetch(createJson.signedUploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": file.type || "application/octet-stream",
-          "x-upsert": "false"
-        },
-        body: file
-      });
-      if (!uploadRes.ok) {
-        throw new Error(`音声アップロードに失敗しました: ${uploadRes.status}`);
+      const browserClient = createSupabaseBrowserClient();
+      const uploadResult = await browserClient.storage
+        .from("speech-fixer-temp")
+        .uploadToSignedUrl(createJson.uploadPath, createJson.token, file, {
+          upsert: false
+        });
+
+      if (uploadResult.error) {
+        throw new Error(`音声アップロードに失敗しました: ${uploadResult.error.message}`);
       }
 
       const queueRes = await fetch(`/api/native-fixer/jobs/${createJson.jobId}/upload-complete`, {
@@ -157,6 +227,15 @@ export function NativeFixerClient() {
       setUploading(false);
       setTimeout(() => setBusyMessage(""), 2500);
     }
+  };
+
+  const onUploadFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    void uploadAudioFile(file);
   };
 
   const openEditTitle = (item: HistoryItem) => {
@@ -495,8 +574,26 @@ export function NativeFixerClient() {
           </div>
         </div>
       ) : null}
+
+      {draggingFile ? (
+        <div className="nfx-drop-overlay" aria-hidden="true">
+          <div className="nfx-drop-overlay-card">
+            <CloudUpload size={34} />
+            <p>ファイルをドロップしてアップロード</p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function isSupportedAudioFile(file: File) {
+  const mime = (file.type || "").toLowerCase();
+  if (mime && ACCEPTED_AUDIO.split(",").includes(mime)) {
+    return true;
+  }
+  const name = file.name.toLowerCase();
+  return [".mp3", ".wav", ".aac", ".m4a"].some((ext) => name.endsWith(ext));
 }
 
 function StatusBadge({ status }: { status: JobStatus }) {

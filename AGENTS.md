@@ -2,6 +2,7 @@
 以下のツールはCLI使えます。
 - Vercel
 - Supabase
+- Gcloud
 
 # プロンプト
 - Geminiなどへのプロンプトは日本語で書いて
