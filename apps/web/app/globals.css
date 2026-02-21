@@ -227,6 +227,47 @@ ul {
   margin: 0;
 }
 
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body pre,
+.markdown-body blockquote {
+  margin: 0.4em 0;
+}
+
+.markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.92em;
+  background: rgba(17, 24, 39, 0.08);
+  padding: 0.15em 0.32em;
+  border-radius: 6px;
+}
+
+.markdown-body pre {
+  background: rgba(17, 24, 39, 0.06);
+  border-radius: 8px;
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-body a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .bubble.user {
   justify-self: end;
   background: #1f5eff;

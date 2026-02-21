@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
 
@@ -12,6 +14,19 @@ type ChatResponse = {
   ja?: string;
   corrections?: string[];
   reviewHints?: string[];
+  error?: string;
+};
+
+type ChatHistoryMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  mode: ChatMode;
+  content: string;
+  created_at: string;
+};
+
+type ChatHistoryResponse = {
+  messages?: ChatHistoryMessage[];
   error?: string;
 };
 
@@ -35,6 +50,8 @@ export function ChatClient() {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
 
   const placeholder = useMemo(() => {
     if (mode === "translate") {
@@ -45,6 +62,59 @@ export function ChatClient() {
     }
     return "英語の質問や添削してほしい文を入力";
   }, [mode]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadHistory = async () => {
+      try {
+        const res = await fetch("/api/chat", { method: "GET" });
+        const json = (await res.json()) as ChatHistoryResponse;
+        if (!active) {
+          return;
+        }
+        if (!res.ok) {
+          setMessages([]);
+          return;
+        }
+
+        const history: UiMessage[] = (json.messages ?? [])
+          .filter((item): item is ChatHistoryMessage & { role: "user" | "assistant" } => {
+            return item.role === "user" || item.role === "assistant";
+          })
+          .map((item) => ({
+            id: item.id,
+            role: item.role,
+            text: item.content,
+            mode: item.mode
+          }));
+
+        setMessages(history);
+      } catch {
+        if (active) {
+          setMessages([]);
+        }
+      } finally {
+        if (active) {
+          setLoadingHistory(false);
+        }
+      }
+    };
+
+    void loadHistory();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  }, [messages, loading, loadingHistory]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -127,13 +197,21 @@ export function ChatClient() {
         </div>
       </header>
 
-      <div className="chat-timeline">
-        {messages.length === 0 ? (
+      <div ref={timelineRef} className="chat-timeline">
+        {loadingHistory ? (
+          <p className="muted">履歴を読み込み中...</p>
+        ) : messages.length === 0 ? (
           <p className="muted">質問を送るとここに会話が表示されます。</p>
         ) : (
           messages.map((item) => (
             <article key={item.id} className={item.role === "user" ? "bubble user" : "bubble assistant"}>
-              <p>{item.text}</p>
+              {item.role === "assistant" ? (
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
+                </div>
+              ) : (
+                <p>{item.text}</p>
+              )}
               {item.role === "assistant" && item.corrections && item.corrections.length > 0 ? (
                 <div className="bubble-meta">
                   <strong>添削</strong>
