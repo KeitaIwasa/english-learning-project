@@ -5,6 +5,7 @@ import { addFlashcard } from "../_shared/flashcards.ts";
 import { generateWithGemini, streamWithGemini, type GeminiContent } from "../_shared/gemini.ts";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
+type AskStreamDonePayload = { reply: string; threadId: string };
 const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 turns
 const ASK_CONTEXT_MAX_CHARS = 3000;
 
@@ -272,7 +273,10 @@ function streamAskResponse(params: {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const writeEvent = (event: "delta" | "done" | "error", payload: unknown) => {
+      const writeEvent = (
+        event: "delta" | "done" | "error",
+        payload: { text: string } | AskStreamDonePayload | { message: string }
+      ) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
       };
 
@@ -285,7 +289,7 @@ function streamAskResponse(params: {
             for await (const chunk of streamWithGemini({
               model: appEnv.geminiFastModel(),
               instruction:
-                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。シンプルな回答を心がけてください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
+                "あなたは、英会話教師です。友達同士での日常会話やチャットでの英語に焦点を当ててください。シンプルな回答を心がけてください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
               contents: params.askContents
             })) {
               answerText += chunk;
@@ -305,7 +309,7 @@ function streamAskResponse(params: {
             const fallback = await generateWithGemini({
               model: appEnv.geminiFastModel(),
               instruction:
-                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。シンプルな回答を心がけてください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
+                "あなたは、英会話教師です。友達同士での日常会話やチャットでの英語に焦点を当ててください。シンプルな回答を心がけてください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
               contents: params.askContents
             });
             answerText = fallback.text.trim();
@@ -349,7 +353,7 @@ function streamAskResponse(params: {
             }
           }
 
-          writeEvent("done", { reply: answerText });
+          writeEvent("done", { reply: answerText, threadId: params.threadId });
         } catch (error) {
           console.error(error);
           writeEvent("error", { message: String(error) });

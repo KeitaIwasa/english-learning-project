@@ -19,6 +19,7 @@ type ChatResponse = {
 
 type ChatHistoryMessage = {
   id: string;
+  thread_id: string;
   role: "user" | "assistant" | "system";
   mode: ChatMode;
   content: string;
@@ -32,6 +33,7 @@ type ChatHistoryResponse = {
 
 type AskStreamDonePayload = {
   reply?: string;
+  threadId?: string;
   corrections?: string[];
   reviewHints?: string[];
 };
@@ -59,6 +61,7 @@ export function ChatClient() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [chatId, setChatId] = useState<string | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const scrollToTimelineBottom = useCallback(() => {
     const el = timelineRef.current;
@@ -105,9 +108,12 @@ export function ChatClient() {
           }));
 
         setMessages(history);
+        const lastThreadId = (json.messages ?? []).at(-1)?.thread_id ?? null;
+        setChatId(lastThreadId);
       } catch {
         if (active) {
           setMessages([]);
+          setChatId(null);
         }
       } finally {
         if (active) {
@@ -156,7 +162,11 @@ export function ChatClient() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: currentMode, message: trimmed })
+        body: JSON.stringify({
+          mode: currentMode,
+          message: trimmed,
+          ...(chatId ? { chatId } : {})
+        })
       });
 
       const contentType = res.headers.get("content-type") ?? "";
@@ -239,6 +249,9 @@ export function ChatClient() {
 
         const finalized: AskStreamDonePayload = donePayload ?? {};
         const finalReply = finalized.reply ?? streamedReply ?? "";
+        if (finalized.threadId) {
+          setChatId(finalized.threadId);
+        }
         updateAssistant({
           text: finalReply || streamErrorText || "応答を取得できませんでした。",
           corrections: currentMode === "ask" ? (finalized.corrections ?? []) : [],
