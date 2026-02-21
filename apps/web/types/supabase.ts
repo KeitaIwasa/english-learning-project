@@ -39,6 +39,9 @@ export type Database = {
           generated_for_date: string;
           used_review_targets_json: Json;
           used_new_targets_json: Json;
+          audio_base64: string | null;
+          audio_mime_type: string | null;
+          audio_voice: string | null;
           rationale_json: Json;
           created_at: string;
         };

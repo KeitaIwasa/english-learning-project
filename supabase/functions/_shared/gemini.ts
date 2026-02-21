@@ -4,6 +4,11 @@ type GeminiGenerateResult = {
   text: string;
 };
 
+type GeminiTtsResult = {
+  audioBase64: string;
+  mimeType: string;
+};
+
 export type GeminiContent = {
   role: "user" | "model";
   parts: Array<{ text: string }>;
@@ -78,6 +83,77 @@ export async function generateWithGemini(params: GeminiRequest): Promise<GeminiG
   }
 
   return { text };
+}
+
+export async function synthesizeSpeechWithGemini(params: {
+  text: string;
+  model: string;
+  voice: string;
+}): Promise<GeminiTtsResult> {
+  const input = String(params.text ?? "").trim();
+  if (!input) {
+    throw new Error("Gemini TTS input text is empty");
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:generateContent?key=${appEnv.geminiApiKey()}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: input }]
+        }
+      ],
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: params.voice
+            }
+          }
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Gemini TTS API error: ${response.status} ${body}`);
+  }
+
+  const json = await response.json();
+  const parts = (json?.candidates?.[0]?.content?.parts ?? []) as Array<{
+    inlineData?: { mimeType?: string; data?: string };
+  }>;
+  const audioParts = parts
+    .map((part) => part.inlineData)
+    .filter((item): item is { mimeType?: string; data?: string } => Boolean(item?.data));
+
+  if (audioParts.length === 0) {
+    throw new Error("Gemini TTS response missing audio inlineData");
+  }
+
+  const mimeType = audioParts[0]?.mimeType;
+  if (!mimeType) {
+    throw new Error("Gemini TTS response missing mimeType");
+  }
+
+  const mixedMimeType = audioParts.some((part) => part.mimeType && part.mimeType !== mimeType);
+  if (mixedMimeType) {
+    throw new Error("Gemini TTS response has inconsistent audio mimeType");
+  }
+
+  const audioBase64 = concatBase64Chunks(audioParts.map((part) => String(part.data ?? "")));
+  if (!audioBase64) {
+    throw new Error("Gemini TTS response audio data is empty");
+  }
+
+  return { audioBase64, mimeType };
 }
 
 export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<string> {
@@ -202,4 +278,25 @@ export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<s
       `Gemini stream returned no text (model=${params.model}, events=${eventCount}, last=${lastDebugSummary || "n/a"})`
     );
   }
+}
+
+function concatBase64Chunks(chunks: string[]): string {
+  if (chunks.length === 1) {
+    return chunks[0];
+  }
+
+  const decoded = chunks.map((chunk) => Uint8Array.from(atob(chunk), (char) => char.charCodeAt(0)));
+  const totalLength = decoded.reduce((sum, bytes) => sum + bytes.length, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const bytes of decoded) {
+    merged.set(bytes, offset);
+    offset += bytes.length;
+  }
+
+  let binary = "";
+  for (const value of merged) {
+    binary += String.fromCharCode(value);
+  }
+  return btoa(binary);
 }

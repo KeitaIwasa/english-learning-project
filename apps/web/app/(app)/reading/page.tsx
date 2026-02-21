@@ -1,4 +1,5 @@
 import { ReadingGenerateButton } from "@/components/reading-generate-button";
+import { ReadingAudioButton } from "@/components/reading-audio-button";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export default async function ReadingPage() {
@@ -16,7 +17,9 @@ export default async function ReadingPage() {
 
   const { data: passages } = await supabase
     .from("reading_passages")
-    .select("id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date")
+    .select(
+      "id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date, audio_base64, audio_mime_type, audio_voice"
+    )
     .order("generated_for_date", { ascending: false })
     .limit(7);
 
@@ -36,6 +39,11 @@ export default async function ReadingPage() {
         <section className="panel">
           <span className="badge">{latest.generated_for_date}</span>
           <h3>{latest.title}</h3>
+          <ReadingAudioButton
+            audioBase64={latest.audio_base64 ?? null}
+            audioMimeType={latest.audio_mime_type ?? null}
+            audioVoice={latest.audio_voice ?? null}
+          />
           <p style={{ whiteSpace: "pre-wrap", lineHeight: "1.7" }}>{latest.body_en}</p>
           <h4>今日の復習ポイント</h4>
           <ul>

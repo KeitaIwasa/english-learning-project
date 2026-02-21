@@ -1,12 +1,13 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
-import { generateWithGemini } from "../_shared/gemini.ts";
+import { generateWithGemini, synthesizeSpeechWithGemini } from "../_shared/gemini.ts";
 import { calcCoverage, chooseTargets, estimateSimilarity, type LearningProfile } from "../_shared/learning.ts";
 import { computeLearningProfile } from "../_shared/profile-builder.ts";
 
 const MIN_COVERAGE = 0.7;
 const MAX_TRY = 3;
+const MAX_TTS_TRY = 3;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -42,17 +43,19 @@ Deno.serve(async (req) => {
 
     const { data: existing } = await serviceClient
       .from("reading_passages")
-      .select("id, used_review_targets_json, used_new_targets_json")
+      .select("id, used_review_targets_json, used_new_targets_json, audio_base64, audio_mime_type")
       .eq("user_id", userId)
       .eq("generated_for_date", targetDate)
       .maybeSingle();
 
     if (existing) {
+      const hasAudio = Boolean(existing.audio_base64 && existing.audio_mime_type);
       return json({
         created: false,
         passageId: existing.id,
         usedReviewTargets: (existing.used_review_targets_json as string[] | null) ?? [],
-        usedNewTargets: (existing.used_new_targets_json as string[] | null) ?? []
+        usedNewTargets: (existing.used_new_targets_json as string[] | null) ?? [],
+        hasAudio
       });
     }
 
@@ -98,6 +101,27 @@ Deno.serve(async (req) => {
       coverage = calcCoverage(chosen.review, generated.used_targets.review);
     }
 
+    let ttsAudio: { audioBase64: string; mimeType: string; voice: string } | null = null;
+    for (let attempt = 0; attempt < MAX_TTS_TRY; attempt += 1) {
+      try {
+        const voice = appEnv.geminiTtsVoice();
+        const response = await synthesizeSpeechWithGemini({
+          text: generated.passage,
+          model: appEnv.geminiTtsModel(),
+          voice
+        });
+
+        ttsAudio = {
+          audioBase64: response.audioBase64,
+          mimeType: response.mimeType,
+          voice
+        };
+        break;
+      } catch (error) {
+        console.error(`[reading-generate-daily] tts attempt failed (${attempt + 1}/${MAX_TTS_TRY})`, error);
+      }
+    }
+
     const rationale = {
       reason: "期限カード・誤答傾向・チャット要約特徴を反映",
       grammarTargets: profile.grammarTargets,
@@ -118,6 +142,9 @@ Deno.serve(async (req) => {
         generated_for_date: targetDate,
         used_review_targets_json: generated.used_targets.review,
         used_new_targets_json: generated.used_targets.new,
+        audio_base64: ttsAudio?.audioBase64 ?? null,
+        audio_mime_type: ttsAudio?.mimeType ?? null,
+        audio_voice: ttsAudio?.voice ?? null,
         rationale_json: rationale
       })
       .select("id")
@@ -125,7 +152,17 @@ Deno.serve(async (req) => {
 
     if (insertError) {
       if (insertError.code === "23505") {
-        return json({ created: false });
+        const { data: duplicated } = await serviceClient
+          .from("reading_passages")
+          .select("id, audio_base64, audio_mime_type")
+          .eq("user_id", userId)
+          .eq("generated_for_date", targetDate)
+          .maybeSingle();
+        return json({
+          created: false,
+          passageId: duplicated?.id ?? null,
+          hasAudio: Boolean(duplicated?.audio_base64 && duplicated?.audio_mime_type)
+        });
       }
       throw insertError;
     }
@@ -134,7 +171,8 @@ Deno.serve(async (req) => {
       created: true,
       passageId: inserted.id,
       usedReviewTargets: generated.used_targets.review,
-      usedNewTargets: generated.used_targets.new
+      usedNewTargets: generated.used_targets.new,
+      hasAudio: Boolean(ttsAudio)
     });
   } catch (error) {
     console.error(error);
