@@ -27,7 +27,20 @@ main {
   max-width: 1120px;
   margin: 0 auto;
   padding: 10px 16px;
-  height: full;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.app-content:has(.chat-page) {
+  overflow: hidden;
 }
 
 .panel {
@@ -179,10 +192,14 @@ ul {
 }
 
 .chat-page {
-  height: calc(100dvh - 118px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   padding: 0 5px;
+}
+
+.chat-page {
+  display: flex;
 }
 
 .chat-modes {
@@ -358,9 +375,8 @@ ul {
 
 @media (max-width: 640px) {
   .chat-page {
-    margin-inline: -24px;
-    width: calc(100% + 48px);
-    height: calc(100dvh - 106px);
+    margin-inline: -16px;
+    height: 100%;
   }
 
   .chat-page > .chat-shell {
