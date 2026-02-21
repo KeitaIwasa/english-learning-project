@@ -14,25 +14,36 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const userClient = createUserClient(req);
-    const serviceClient = createServiceClient();
+    const body = await req.json().catch(() => ({}));
+    const requestedUserId = body?.userId ? String(body.userId) : null;
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const isServiceRoleCall = Boolean(requestedUserId) && getJwtRole(bearerToken) === "service_role";
 
-    const {
-      data: { user },
-      error: authError
-    } = await userClient.auth.getUser();
+    let userId: string;
+    if (isServiceRoleCall) {
+      userId = requestedUserId!;
+    } else {
+      const userClient = createUserClient(req);
+      const {
+        data: { user },
+        error: authError
+      } = await userClient.auth.getUser();
 
-    if (authError || !user) {
-      return json({ error: "Unauthorized" }, 401);
+      if (authError || !user) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      userId = user.id;
     }
 
-    const body = await req.json().catch(() => ({}));
+    const serviceClient = createServiceClient();
     const targetDate = body?.date ? String(body.date) : todayDate();
 
     const { data: existing } = await serviceClient
       .from("reading_passages")
       .select("id, used_review_targets_json, used_new_targets_json")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("generated_for_date", targetDate)
       .maybeSingle();
 
@@ -45,14 +56,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const profileRow = await getOrBuildProfile(serviceClient, user.id, body?.profileId, targetDate);
+    const profileRow = await getOrBuildProfile(serviceClient, userId, body?.profileId, targetDate);
     const profile = rowToProfile(profileRow);
     const chosen = chooseTargets(profile);
 
     const { data: yesterday } = await serviceClient
       .from("reading_passages")
       .select("body_en")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .lt("generated_for_date", targetDate)
       .order("generated_for_date", { ascending: false })
       .limit(1)
@@ -98,7 +109,7 @@ Deno.serve(async (req) => {
     const { data: inserted, error: insertError } = await serviceClient
       .from("reading_passages")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         profile_id: profileRow.id,
         title: generated.title,
         body_en: generated.passage,
@@ -313,6 +324,27 @@ function parseGeneratedReadingJson(rawText: string): GeneratedReading {
 
     throw new Error("Failed to parse generated reading JSON");
   }
+}
+
+function getJwtRole(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  try {
+    const payload = decodeBase64Url(parts[1]);
+    const parsed = JSON.parse(payload) as { role?: unknown };
+    return typeof parsed.role === "string" ? parsed.role : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  return atob(padded);
 }
 
 function todayDate() {

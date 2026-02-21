@@ -116,7 +116,7 @@ function streamTranslateResponse(params: { message: string }) {
           for await (const chunk of streamWithGemini({
             model: appEnv.geminiFastModel(),
             instruction:
-              "あなたは、英会話教師です。ユーザーが送るメッセージは以下のいずれかです。\n- 日本語の文章→自然な英語に翻訳してください。（いくつか候補を提示）\n- 英語の単語や文章→日本語に翻訳して、どのようなニュアンスになるか説明してください。英語の使い方に誤りがあったり不自然だったりする場合は、的確に指摘してください。",
+              "あなたは、英会話教師です。ユーザーが送るメッセージは以下のいずれかです。\n- 日本語の文章→自然な英語に翻訳してください。（いくつか候補を提示）\n- 英語の単語や文章→日本語に翻訳して、どのようなニュアンスになるか説明してください。英語の使い方に誤りがあったり不自然だったりする場合は、的確に指摘してください。単刀直入にシンプルに答えてください。",
             input: params.message
           })) {
             answerText += chunk;
@@ -285,7 +285,7 @@ function streamAskResponse(params: {
             for await (const chunk of streamWithGemini({
               model: appEnv.geminiFastModel(),
               instruction:
-                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
+                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。シンプルな回答を心がけてください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
               contents: params.askContents
             })) {
               answerText += chunk;
@@ -305,7 +305,7 @@ function streamAskResponse(params: {
             const fallback = await generateWithGemini({
               model: appEnv.geminiFastModel(),
               instruction:
-                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
+                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。シンプルな回答を心がけてください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
               contents: params.askContents
             });
             answerText = fallback.text.trim();
