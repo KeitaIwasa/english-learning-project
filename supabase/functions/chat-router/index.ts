@@ -2,7 +2,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
 import { addFlashcard } from "../_shared/flashcards.ts";
-import { streamWithGemini } from "../_shared/gemini.ts";
+import { generateWithGemini, streamWithGemini } from "../_shared/gemini.ts";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
 const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 exchanges (user+assistant)
@@ -259,6 +259,24 @@ function streamAskResponse(params: {
           })) {
             answerText += chunk;
             writeEvent("delta", { text: chunk });
+          }
+
+          // Gemini stream occasionally ends without text for ask mode.
+          // Fall back to non-stream generateContent so users still get a reply.
+          if (!answerText.trim()) {
+            console.error(
+              `[chat-router] Empty ask stream response. Falling back to generateContent. threadId=${params.threadId}`
+            );
+            const fallback = await generateWithGemini({
+              model: appEnv.geminiFastModel(),
+              instruction:
+                "あなたは英語学習のチューターです。学習の説明は自然な日本語で行い、ユーザーの最新メッセージに集中して回答してください。",
+              input: `会話履歴:\n${params.historyText}\n\n現在のユーザーメッセージ:\n${params.message}`
+            });
+            answerText = fallback.text.trim();
+            if (answerText) {
+              writeEvent("delta", { text: answerText });
+            }
           }
 
           const { error: assistantMessageError } = await params.serviceClient.from("chat_messages").insert({

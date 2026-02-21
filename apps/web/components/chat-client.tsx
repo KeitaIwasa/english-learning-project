@@ -161,6 +161,7 @@ export function ChatClient() {
         let buffer = "";
         let streamedReply = "";
         let donePayload: AskStreamDonePayload | null = null;
+        let streamErrorText = "";
 
         const updateAssistant = (patch: Partial<UiMessage>) => {
           setMessages((prev) =>
@@ -208,7 +209,8 @@ export function ChatClient() {
 
           if (event === "error") {
             const json = payload as { message?: string };
-            updateAssistant({ text: `エラー: ${json.message ?? "stream error"}` });
+            streamErrorText = `エラー: ${json.message ?? "stream error"}`;
+            updateAssistant({ text: streamErrorText });
           }
         };
 
@@ -233,7 +235,7 @@ export function ChatClient() {
         const finalized: AskStreamDonePayload = donePayload ?? {};
         const finalReply = finalized.reply ?? streamedReply ?? "";
         updateAssistant({
-          text: finalReply || "応答を取得できませんでした。",
+          text: finalReply || streamErrorText || "応答を取得できませんでした。",
           corrections: currentMode === "ask" ? (finalized.corrections ?? []) : [],
           reviewHints: currentMode === "ask" ? (finalized.reviewHints ?? []) : []
         });

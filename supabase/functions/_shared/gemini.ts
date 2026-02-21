@@ -81,6 +81,34 @@ export async function* streamWithGemini(params: {
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let eventCount = 0;
+  let textChunkCount = 0;
+  let lastDebugSummary = "";
+
+  const summarizePayload = (payload: unknown): string => {
+    if (!payload || typeof payload !== "object") {
+      return "non_object_payload";
+    }
+
+    const record = payload as {
+      error?: { message?: string };
+      promptFeedback?: { blockReason?: string };
+      candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
+    };
+    const first = record.candidates?.[0];
+    const partCount = first?.content?.parts?.length ?? 0;
+    const textParts = (first?.content?.parts ?? []).filter((part) => Boolean(part?.text)).length;
+    const thoughtParts = (first?.content?.parts ?? []).filter((part) => Boolean(part?.thought)).length;
+    return JSON.stringify({
+      hasError: Boolean(record.error),
+      errorMessage: record.error?.message ?? null,
+      blockReason: record.promptFeedback?.blockReason ?? null,
+      finishReason: first?.finishReason ?? null,
+      partCount,
+      textParts,
+      thoughtParts
+    });
+  };
 
   const parseEventText = (eventText: string): string[] => {
     const dataLines = eventText
@@ -104,13 +132,31 @@ export async function* streamWithGemini(params: {
       return [];
     }
 
+    // Some Gemini stream payloads may be wrapped in an array.
+    const items: unknown[] = Array.isArray(json) ? json : [json];
+    const out: string[] = [];
+
+    for (const item of items) {
+      lastDebugSummary = summarizePayload(item);
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const parsed = item as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const text = parsed.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+      if (text) {
+        out.push(text);
+      }
+    }
+
+    if (out.length > 0) {
+      textChunkCount += out.length;
+    }
+
     if (!json || typeof json !== "object") {
       return [];
     }
-
-    const parsed = json as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-    const text = parsed.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-    return text ? [text] : [];
+    return out;
   };
 
   for await (const chunk of response.body) {
@@ -119,6 +165,7 @@ export async function* streamWithGemini(params: {
     buffer = events.pop() ?? "";
 
     for (const event of events) {
+      eventCount += 1;
       for (const text of parseEventText(event)) {
         yield text;
       }
@@ -127,8 +174,15 @@ export async function* streamWithGemini(params: {
 
   buffer += decoder.decode();
   if (buffer.trim()) {
+    eventCount += 1;
     for (const text of parseEventText(buffer)) {
       yield text;
     }
+  }
+
+  if (textChunkCount === 0) {
+    throw new Error(
+      `Gemini stream returned no text (model=${params.model}, events=${eventCount}, last=${lastDebugSummary || "n/a"})`
+    );
   }
 }
