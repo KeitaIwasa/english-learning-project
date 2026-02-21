@@ -34,13 +34,25 @@ async function loginWithGoogle() {
   authUrl.searchParams.set("redirect_to", redirectUrl);
   authUrl.searchParams.set("scopes", "openid email profile");
 
-  const callbackUrl = await chrome.identity.launchWebAuthFlow({
-    url: authUrl.toString(),
-    interactive: true
-  });
+  let callbackUrl;
+  try {
+    callbackUrl = await chrome.identity.launchWebAuthFlow({
+      url: authUrl.toString(),
+      interactive: true
+    });
+  } catch (error) {
+    const message = typeof error?.message === "string" ? error.message : String(error);
+    statusEl.textContent = `ログイン失敗: SupabaseのRedirect URLsに ${redirectUrl} を追加してください (${message})`;
+    return;
+  }
 
   if (!callbackUrl) {
     statusEl.textContent = "ログインに失敗しました";
+    return;
+  }
+
+  if (!callbackUrl.startsWith(redirectUrl)) {
+    statusEl.textContent = `ログイン失敗: 想定外のリダイレクト先です。Supabaseに ${redirectUrl} を許可してください`;
     return;
   }
 
@@ -55,7 +67,7 @@ async function loginWithGoogle() {
 
   await chrome.storage.local.set({ accessToken });
   applyAuthState(true);
-  statusEl.textContent = "ログイン完了";
+  statusEl.textContent = "";
 }
 
 async function addFlashcard() {
@@ -118,5 +130,6 @@ function applyAuthState(isLoggedIn) {
     formArea.classList.add("force-hidden");
     formArea.style.display = "none";
   }
-  statusEl.textContent = isLoggedIn ? "ログイン済み" : "未ログイン";
+  // Keep status area for actionable messages only (errors/success on add).
+  statusEl.textContent = "";
 }

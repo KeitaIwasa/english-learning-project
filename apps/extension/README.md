@@ -14,3 +14,4 @@
 
 - Google OAuth redirect URL is `chrome.identity.getRedirectURL()`.
 - Add that URL to Supabase Google provider redirect allow list.
+- If login opens your web `SITE_URL` (for example Vercel) instead of returning to the extension, the extension redirect URL is not allowed in Supabase yet.
