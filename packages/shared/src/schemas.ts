@@ -19,6 +19,11 @@ export const flashcardAddRequestSchema = z.object({
   source: z.enum(["web", "extension", "chat"])
 });
 
+export const flashcardReviewRequestSchema = z.object({
+  flashcardId: z.string().uuid(),
+  remembered: z.boolean()
+});
+
 export const learningProfileBuildRequestSchema = z.object({
   userId: z.string().uuid().optional(),
   lookbackDays: z.number().int().min(1).max(60).default(14)
@@ -60,6 +65,7 @@ export const generatedPassageSchema = z.object({
 export type ChatMode = z.infer<typeof chatModeSchema>;
 export type ChatRouterRequest = z.infer<typeof chatRouterRequestSchema>;
 export type FlashcardAddRequest = z.infer<typeof flashcardAddRequestSchema>;
+export type FlashcardReviewRequest = z.infer<typeof flashcardReviewRequestSchema>;
 export type LearningProfileBuildRequest = z.infer<typeof learningProfileBuildRequestSchema>;
 export type ReadingGenerateRequest = z.infer<typeof readingGenerateRequestSchema>;
 export type GeneratedPassage = z.infer<typeof generatedPassageSchema>;

@@ -167,6 +167,11 @@ button {
   font-weight: 600;
 }
 
+button.secondary {
+  background: #e6edf8;
+  color: #17325b;
+}
+
 input,
 textarea,
 select {
@@ -456,4 +461,31 @@ ul {
   color: #1a49bc;
   border-color: #bfd2ff;
   box-shadow: inset 0 -2px 0 #1f5eff;
+}
+
+.flashcard-review {
+  display: grid;
+  gap: 12px;
+}
+
+.flashcard-en {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.flashcard-ja {
+  margin: 0;
+  line-height: 1.6;
+  color: #17325b;
+}
+
+.flashcard-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.flashcard-complete strong {
+  color: #10358a;
 }

@@ -24,3 +24,9 @@ additional_redirect_urls = [
 
 [functions.chat-router]
 verify_jwt = false
+
+[functions.flashcards-add]
+verify_jwt = false
+
+[functions.flashcards-review]
+verify_jwt = false

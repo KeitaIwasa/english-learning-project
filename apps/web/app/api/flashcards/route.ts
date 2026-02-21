@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getServiceEnv } from "@/lib/service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export async function POST(request: Request) {
@@ -13,51 +11,46 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
 
-  if (!userData.user) {
+  if (!user || !session?.access_token) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  const { supabaseUrl, serviceRoleKey } = getServiceEnv();
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const { data: card, error: cardError } = await admin
-    .from("flashcards")
-    .insert({
-      user_id: userData.user.id,
-      en,
-      ja: ja || null,
-      source: "web"
-    })
-    .select("id")
-    .single();
-
-  if (cardError || !card) {
-    console.error("flashcards insert failed:", cardError?.message ?? "no row returned");
+  if (!supabaseUrl || !anonKey) {
+    console.error("Missing Supabase env vars for flashcards route");
     return NextResponse.redirect(new URL("/flashcards", request.url));
   }
 
-  const nextReviewAt = new Date();
-  nextReviewAt.setUTCDate(nextReviewAt.getUTCDate() + 1);
+  try {
+    const upstream = await fetch(`${supabaseUrl}/functions/v1/flashcards-add`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: anonKey
+      },
+      body: JSON.stringify({
+        en,
+        ja: ja || undefined,
+        source: "web"
+      })
+    });
 
-  const { error: reviewError } = await admin.from("flashcard_reviews").insert({
-    flashcard_id: card.id,
-    user_id: userData.user.id,
-    quality: 4,
-    interval_days: 1,
-    ease_factor: 2.5,
-    repetition: 0,
-    next_review_at: nextReviewAt.toISOString()
-  });
-
-  if (reviewError) {
-    console.error("flashcard_reviews insert failed:", reviewError.message);
+    if (!upstream.ok) {
+      const text = await upstream.text();
+      console.error("flashcards-add invocation failed:", text);
+    }
+  } catch (error) {
+    console.error("flashcards-add request failed:", error);
   }
 
   return NextResponse.redirect(new URL("/flashcards", request.url));

@@ -52,7 +52,8 @@ Deno.serve(async (req) => {
       id: card.id,
       en: card.en,
       ja: card.ja,
-      nextReviewAt: card.nextReviewAt
+      nextReviewAt: card.nextReviewAt,
+      duplicated: card.duplicated
     });
   } catch (error) {
     console.error(error);

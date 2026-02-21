@@ -14,6 +14,19 @@ export type Database = {
           updated_at: string;
         };
       };
+      flashcard_reviews: {
+        Row: {
+          id: string;
+          flashcard_id: string;
+          user_id: string;
+          quality: number;
+          interval_days: number;
+          ease_factor: number;
+          repetition: number;
+          reviewed_at: string;
+          next_review_at: string;
+        };
+      };
       reading_passages: {
         Row: {
           id: string;

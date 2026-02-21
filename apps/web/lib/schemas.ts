@@ -10,3 +10,8 @@ export const chatRouterRequestSchema = z.object({
     })
     .optional()
 });
+
+export const flashcardReviewRequestSchema = z.object({
+  flashcardId: z.string().uuid(),
+  remembered: z.boolean()
+});

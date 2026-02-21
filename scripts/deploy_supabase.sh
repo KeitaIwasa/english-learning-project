@@ -22,6 +22,7 @@ npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
 npx supabase db push
 
 npx supabase functions deploy flashcards-add
+npx supabase functions deploy flashcards-review
 npx supabase functions deploy chat-router
 npx supabase functions deploy learning-profile-build
 npx supabase functions deploy reading-generate-daily

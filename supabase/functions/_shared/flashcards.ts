@@ -1,6 +1,10 @@
 import { generateWithGemini } from "./gemini.ts";
 import { appEnv } from "./env.ts";
 
+function normalizeEnglish(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 export async function addFlashcard(params: {
   serviceClient: any;
   userId: string;
@@ -11,6 +15,29 @@ export async function addFlashcard(params: {
   const en = params.en.trim();
   if (!en) {
     throw new Error("English text is required");
+  }
+  const normalizedEn = normalizeEnglish(en);
+
+  const { data: existingCards, error: existingError } = await params.serviceClient
+    .from("flashcards")
+    .select("id, en, ja")
+    .eq("user_id", params.userId)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  const duplicated = (existingCards ?? []).find((item: { en: string }) => normalizeEnglish(item.en) === normalizedEn);
+  if (duplicated) {
+    return {
+      id: duplicated.id,
+      en: duplicated.en,
+      ja: duplicated.ja,
+      nextReviewAt: null,
+      duplicated: true
+    };
   }
 
   let ja = params.ja?.trim();
@@ -60,6 +87,7 @@ export async function addFlashcard(params: {
     id: card.id,
     en: card.en,
     ja: card.ja,
-    nextReviewAt: nextReviewAt.toISOString()
+    nextReviewAt: nextReviewAt.toISOString(),
+    duplicated: false
   };
 }

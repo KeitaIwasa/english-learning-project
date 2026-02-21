@@ -1,30 +1,43 @@
 import { expect, test } from "@playwright/test";
 
-test("authenticated user can add flashcard and see it in recent list", async ({ page }) => {
+test("authenticated user can add/dedupe cards and review one card", async ({ page }) => {
   const marker = `pw-marker-${Date.now()}`;
-  let apiStatus: number | null = null;
-  let apiBody = "";
-
-  page.on("response", async (response) => {
-    if (response.url().includes("/api/flashcards") && response.request().method() === "POST") {
-      apiStatus = response.status();
-      apiBody = await response.text().catch(() => "");
-    }
-  });
 
   await page.goto("/flashcards");
   await expect(page.getByRole("heading", { name: "フラッシュカード追加" })).toBeVisible();
 
-  await page.locator('textarea[name="en"]').fill(`This is ${marker}.`);
-  await page.locator('textarea[name="ja"]').fill(`これは ${marker} です。`);
+  const enText = `This is ${marker}.`;
+  const jaText = `これは ${marker} です。`;
+
+  await page.locator('textarea[name="en"]').fill(enText);
+  await page.locator('textarea[name="ja"]').fill(jaText);
   await page.getByRole("button", { name: "追加" }).click();
-
   await page.waitForURL("**/flashcards");
-  const recentText = await page.locator("section.panel").nth(1).innerText();
 
-  console.log(`[flashcards-test] apiStatus=${apiStatus}`);
-  console.log(`[flashcards-test] apiBody=${apiBody.slice(0, 400)}`);
-  console.log(`[flashcards-test] recentPanel=${recentText.slice(0, 800)}`);
+  await page.locator('textarea[name="en"]').fill(`  This   is ${marker}. `);
+  await page.locator('textarea[name="ja"]').fill("重複テスト");
+  await page.getByRole("button", { name: "追加" }).click();
+  await page.waitForURL("**/flashcards");
 
-  await expect(page.locator("section.panel").nth(1)).toContainText(`This is ${marker}.`);
+  const recentPanel = page.locator("section.panel").nth(2);
+  await expect(recentPanel).toContainText(enText);
+  await expect(recentPanel.getByText(new RegExp(`This is ${marker}\\.`))).toHaveCount(1);
+
+  const reviewPanel = page.locator("section.panel").first();
+  await expect(reviewPanel.getByRole("heading", { name: "フラッシュカード復習" })).toBeVisible();
+
+  const showAnswerButton = reviewPanel.getByRole("button", { name: "答えを見る" });
+  if (await showAnswerButton.isVisible()) {
+    await showAnswerButton.click();
+    await expect(reviewPanel.getByRole("button", { name: "覚えている" })).toBeVisible();
+
+    await reviewPanel.getByRole("button", { name: "覚えている" }).click();
+
+    const completedText = reviewPanel.getByText("今日の復習は完了です。");
+    if (await completedText.isVisible()) {
+      await expect(reviewPanel).toContainText("次回復習予定:");
+    } else {
+      await expect(reviewPanel).toContainText("進捗:");
+    }
+  }
 });
