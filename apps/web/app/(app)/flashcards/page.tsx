@@ -16,11 +16,5 @@ export default async function FlashcardsPage() {
     );
   }
 
-  const { data: cards } = await supabase
-    .from("flashcards")
-    .select("id, en, ja, created_at")
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  return <FlashcardsReviewClient initialCards={cards ?? []} />;
+  return <FlashcardsReviewClient />;
 }

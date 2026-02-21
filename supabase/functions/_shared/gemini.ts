@@ -178,7 +178,7 @@ export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<s
 
   for await (const chunk of response.body) {
     buffer += decoder.decode(chunk, { stream: true });
-    const events = buffer.split("\n\n");
+    const events = buffer.split(/\r?\n\r?\n/);
     buffer = events.pop() ?? "";
 
     for (const event of events) {

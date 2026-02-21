@@ -15,3 +15,13 @@ export const flashcardReviewRequestSchema = z.object({
   flashcardId: z.string().uuid(),
   remembered: z.boolean()
 });
+
+export const flashcardManageUpdateSchema = z.object({
+  id: z.string().uuid(),
+  en: z.string().trim().min(1),
+  ja: z.string().trim()
+});
+
+export const flashcardManageDeleteSchema = z.object({
+  id: z.string().uuid()
+});

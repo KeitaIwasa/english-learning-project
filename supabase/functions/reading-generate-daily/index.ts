@@ -62,19 +62,23 @@ Deno.serve(async (req) => {
     let coverage = 0;
 
     for (let attempt = 0; attempt < MAX_TRY; attempt += 1) {
-      const candidate = await generateReading({
-        reviewTargets: chosen.review,
-        freshTargets: chosen.fresh,
-        grammarTargets: profile.grammarTargets
-      });
+      try {
+        const candidate = await generateReading({
+          reviewTargets: chosen.review,
+          freshTargets: chosen.fresh,
+          grammarTargets: profile.grammarTargets
+        });
 
-      const candidateCoverage = calcCoverage(chosen.review, candidate.used_targets.review);
-      const similarity = yesterday?.body_en ? estimateSimilarity(yesterday.body_en, candidate.passage) : 0;
+        const candidateCoverage = calcCoverage(chosen.review, candidate.used_targets.review);
+        const similarity = yesterday?.body_en ? estimateSimilarity(yesterday.body_en, candidate.passage) : 0;
 
-      if (candidateCoverage >= MIN_COVERAGE && similarity < 0.8) {
-        generated = candidate;
-        coverage = candidateCoverage;
-        break;
+        if (candidateCoverage >= MIN_COVERAGE && similarity < 0.8) {
+          generated = candidate;
+          coverage = candidateCoverage;
+          break;
+        }
+      } catch (error) {
+        console.error(`[reading-generate-daily] generation attempt failed (${attempt + 1}/${MAX_TRY})`, error);
       }
     }
 
@@ -240,7 +244,7 @@ async function generateReading(params: {
     responseMimeType: "application/json"
   });
 
-  const parsed = JSON.parse(generated.text) as GeneratedReading;
+  const parsed = parseGeneratedReadingJson(generated.text);
   if (!parsed?.title || !parsed?.passage || !parsed?.used_targets?.review || !parsed?.used_targets?.new) {
     throw new Error("Invalid generated reading format");
   }
@@ -288,6 +292,27 @@ function rowToProfile(row: LearningProfileRow): LearningProfile {
     grammarTargets: Array.isArray(row.grammar_targets_json) ? (row.grammar_targets_json as string[]) : [],
     newCandidates: Array.isArray(row.new_candidates_json) ? (row.new_candidates_json as string[]) : []
   };
+}
+
+function parseGeneratedReadingJson(rawText: string): GeneratedReading {
+  const trimmed = rawText.trim();
+  try {
+    return JSON.parse(trimmed) as GeneratedReading;
+  } catch {
+    // Gemini may occasionally wrap JSON with ```json fences even when JSON is requested.
+    const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fencedMatch?.[1]) {
+      return JSON.parse(fencedMatch[1]) as GeneratedReading;
+    }
+
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1)) as GeneratedReading;
+    }
+
+    throw new Error("Failed to parse generated reading JSON");
+  }
 }
 
 function todayDate() {

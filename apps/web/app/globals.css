@@ -489,3 +489,61 @@ ul {
 .flashcard-complete strong {
   color: #10358a;
 }
+
+.recent-search {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.recent-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.recent-card {
+  border: 1px solid #d9e2f2;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfdff;
+  display: grid;
+  gap: 10px;
+}
+
+.recent-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recent-card-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.recent-card-fields textarea {
+  width: 100%;
+}
+
+.recent-card-sm2 {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.recent-card-sm2 p {
+  margin: 0;
+}
+
+.recent-card-actions {
+  min-height: 20px;
+}
+
+.pagination-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
