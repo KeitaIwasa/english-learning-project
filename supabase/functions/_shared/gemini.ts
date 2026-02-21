@@ -4,33 +4,58 @@ type GeminiGenerateResult = {
   text: string;
 };
 
+export type GeminiContent = {
+  role: "user" | "model";
+  parts: Array<{ text: string }>;
+};
+
+type GeminiRequest = {
+  model: string;
+  instruction: string;
+  input?: string;
+  contents?: GeminiContent[];
+  responseMimeType?: string;
+};
+
 function buildGeminiBody(params: {
   instruction: string;
-  input: string;
+  input?: string;
+  contents?: GeminiContent[];
   responseMimeType?: string;
 }) {
+  const normalizedContents = (params.contents ?? [])
+    .map((content) => ({
+      role: content.role,
+      parts: (content.parts ?? [])
+        .map((part) => ({ text: String(part?.text ?? "") }))
+        .filter((part) => part.text.trim().length > 0)
+    }))
+    .filter((content) => content.parts.length > 0);
+
+  if (normalizedContents.length === 0) {
+    const input = String(params.input ?? "");
+    if (!input.trim()) {
+      throw new Error("Gemini request requires either non-empty contents or input");
+    }
+
+    normalizedContents.push({
+      role: "user",
+      parts: [{ text: input }]
+    });
+  }
+
   return {
     system_instruction: {
       parts: [{ text: params.instruction }]
     },
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: params.input }]
-      }
-    ],
+    contents: normalizedContents,
     generationConfig: {
       responseMimeType: params.responseMimeType ?? "text/plain"
     }
   };
 }
 
-export async function generateWithGemini(params: {
-  model: string;
-  instruction: string;
-  input: string;
-  responseMimeType?: string;
-}): Promise<GeminiGenerateResult> {
+export async function generateWithGemini(params: GeminiRequest): Promise<GeminiGenerateResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:generateContent?key=${appEnv.geminiApiKey()}`;
 
   const response = await fetch(url, {
@@ -55,12 +80,7 @@ export async function generateWithGemini(params: {
   return { text };
 }
 
-export async function* streamWithGemini(params: {
-  model: string;
-  instruction: string;
-  input: string;
-  responseMimeType?: string;
-}): AsyncGenerator<string> {
+export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:streamGenerateContent?alt=sse&key=${appEnv.geminiApiKey()}`;
   const response = await fetch(url, {
     method: "POST",

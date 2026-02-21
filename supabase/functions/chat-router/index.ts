@@ -2,10 +2,10 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
 import { addFlashcard } from "../_shared/flashcards.ts";
-import { generateWithGemini, streamWithGemini } from "../_shared/gemini.ts";
+import { generateWithGemini, streamWithGemini, type GeminiContent } from "../_shared/gemini.ts";
 
 type ChatMode = "translate" | "ask" | "add_flashcard";
-const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 exchanges (user+assistant)
+const ASK_CONTEXT_MAX_MESSAGES = 10; // about 5 turns
 const ASK_CONTEXT_MAX_CHARS = 3000;
 
 Deno.serve(async (req) => {
@@ -86,15 +86,15 @@ Deno.serve(async (req) => {
     const history = [...(historyRows ?? [])]
       .filter((row) => row.id !== userMessage.id)
       .reverse();
-    const historyText = buildAskContext(history, ASK_CONTEXT_MAX_MESSAGES, ASK_CONTEXT_MAX_CHARS);
+    const askContents = buildAskContents(history, message, ASK_CONTEXT_MAX_MESSAGES, ASK_CONTEXT_MAX_CHARS);
 
     return streamAskResponse({
-      historyText,
-      message,
+      askContents,
       userId: user.id,
       userMessageId: userMessage.id,
       threadId,
-      serviceClient
+      serviceClient,
+      message
     });
   } catch (error) {
     console.error(error);
@@ -189,35 +189,64 @@ function parseFlashcardMessage(message: string): { en: string; ja?: string } {
   };
 }
 
-function buildAskContext(
+function buildAskContents(
   rows: Array<{ role: string; content: string }>,
+  latestMessage: string,
   maxMessages: number,
   maxChars: number
-): string {
-  const recent = rows.slice(-maxMessages);
-  const selected: string[] = [];
+): GeminiContent[] {
+  const turns = rows
+    .map((row) => ({
+      role: row.role === "assistant" ? ("model" as const) : ("user" as const),
+      text: String(row.content ?? "").trim()
+    }))
+    .filter((turn) => turn.text.length > 0);
+
+  turns.push({
+    role: "user",
+    text: latestMessage
+  });
+
+  const recent = turns.slice(-maxMessages);
+  const selected: Array<{ role: "user" | "model"; text: string }> = [];
   let usedChars = 0;
 
   for (let index = recent.length - 1; index >= 0; index -= 1) {
-    const line = `${recent[index].role}: ${String(recent[index].content ?? "").trim()}`;
-    if (!line.trim()) {
+    const turn = recent[index];
+    if (!turn.text.trim()) {
       continue;
     }
 
-    const withNewline = selected.length > 0 ? line.length + 1 : line.length;
+    const withNewline = selected.length > 0 ? turn.text.length + 1 : turn.text.length;
     if (usedChars + withNewline <= maxChars) {
-      selected.push(line);
+      selected.push(turn);
       usedChars += withNewline;
       continue;
     }
 
     if (selected.length === 0) {
-      selected.push(line.slice(0, maxChars));
+      selected.push({
+        role: turn.role,
+        text: turn.text.slice(-maxChars)
+      });
     }
     break;
   }
 
-  return selected.reverse().join("\n");
+  const merged: Array<{ role: "user" | "model"; text: string }> = [];
+  for (const turn of selected.reverse()) {
+    const last = merged.at(-1);
+    if (last && last.role === turn.role) {
+      last.text = `${last.text}\n${turn.text}`;
+      continue;
+    }
+    merged.push({ role: turn.role, text: turn.text });
+  }
+
+  return merged.map((turn) => ({
+    role: turn.role,
+    parts: [{ text: turn.text }]
+  }));
 }
 
 function deriveSignals(message: string, reply: string): Array<{ key: string; weight: number }> {
@@ -233,9 +262,9 @@ function deriveSignals(message: string, reply: string): Array<{ key: string; wei
 }
 
 function streamAskResponse(params: {
-  historyText: string;
-  message: string;
+  askContents: GeminiContent[];
   userId: string;
+  message: string;
   userMessageId: string;
   threadId: string;
   serviceClient: any;
@@ -256,8 +285,8 @@ function streamAskResponse(params: {
             for await (const chunk of streamWithGemini({
               model: appEnv.geminiFastModel(),
               instruction:
-                "あなたは英語学習のチューターです。学習の説明は自然な日本語で行い、ユーザーの最新メッセージに集中して回答してください。",
-              input: `会話履歴:\n${params.historyText}\n\n現在のユーザーメッセージ:\n${params.message}`
+                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
+              contents: params.askContents
             })) {
               answerText += chunk;
               writeEvent("delta", { text: chunk });
@@ -276,8 +305,8 @@ function streamAskResponse(params: {
             const fallback = await generateWithGemini({
               model: appEnv.geminiFastModel(),
               instruction:
-                "あなたは英語学習のチューターです。学習の説明は自然な日本語で行い、ユーザーの最新メッセージに集中して回答してください。",
-              input: `会話履歴:\n${params.historyText}\n\n現在のユーザーメッセージ:\n${params.message}`
+                "あなたは、英会話教師です。友達同士での会話やチャットでの英語に焦点を当ててください。英語の例文を示す際は、過去のチャットで使ったフレーズや文法を積極的に取り入れ、復習にもなるようにして。",
+              contents: params.askContents
             });
             answerText = fallback.text.trim();
             if (answerText) {
