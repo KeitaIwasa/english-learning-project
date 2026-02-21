@@ -10,6 +10,7 @@ if (!(Test-Path $chromePath)) {
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 
 Start-Process -FilePath $chromePath -ArgumentList @(
+  "--remote-debugging-address=0.0.0.0",
   "--remote-debugging-port=$port",
   "--user-data-dir=$profileDir"
 )

@@ -19,3 +19,5 @@ supabase/.temp/
 playwright-report/
 test-results/
 tests/.auth/
+
+tests/screenshots/
