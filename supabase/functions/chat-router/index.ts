@@ -124,7 +124,10 @@ function streamTranslateResponse(params: {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const writeEvent = (event: "delta" | "done" | "error", payload: unknown) => {
+      const writeEvent = (
+        event: "delta" | "done" | "error",
+        payload: { text: string } | AskStreamDonePayload | { message: string; threadId?: string }
+      ) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
       };
 
@@ -172,7 +175,7 @@ function streamTranslateResponse(params: {
           writeEvent("done", { reply: answerText.trim(), threadId: params.threadId });
         } catch (error) {
           console.error(error);
-          writeEvent("error", { message: String(error) });
+          writeEvent("error", { message: String(error), threadId: params.threadId });
         } finally {
           controller.close();
         }
@@ -277,7 +280,7 @@ function streamAskResponse(params: {
     start(controller) {
       const writeEvent = (
         event: "delta" | "done" | "error",
-        payload: { text: string } | AskStreamDonePayload | { message: string }
+        payload: { text: string } | AskStreamDonePayload | { message: string; threadId?: string }
       ) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
       };
@@ -358,7 +361,7 @@ function streamAskResponse(params: {
           writeEvent("done", { reply: answerText, threadId: params.threadId });
         } catch (error) {
           console.error(error);
-          writeEvent("error", { message: String(error) });
+          writeEvent("error", { message: String(error), threadId: params.threadId });
         } finally {
           controller.close();
         }
