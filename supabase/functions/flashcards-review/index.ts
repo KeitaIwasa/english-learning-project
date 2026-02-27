@@ -1,30 +1,12 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { nextSm2 } from "../_shared/sm2.ts";
-
-type QueueItem = {
-  id: string;
-  en: string;
-  ja: string;
-  nextReviewAt: string | null;
-  isDue: boolean;
-};
-
-type FlashcardRow = {
-  id: string;
-  en: string;
-  ja: string;
-  created_at: string;
-};
-
-type FlashcardReviewRow = {
-  flashcard_id: string;
-  repetition: number;
-  interval_days: number;
-  ease_factor: number;
-  next_review_at: string;
-  reviewed_at: string;
-};
+import {
+  buildReviewQueue,
+  type FlashcardReviewRow,
+  type FlashcardRow,
+  type QueueItem
+} from "../_shared/review-queue.ts";
 
 const MAX_REVIEW_QUEUE = 50;
 
@@ -151,72 +133,11 @@ async function loadQueue(serviceClient: any, userId: string): Promise<{ queue: Q
     throw reviewsError;
   }
 
-  const latestByCard = new Map<string, FlashcardReviewRow>();
-  for (const review of (reviews ?? []) as FlashcardReviewRow[]) {
-    if (!latestByCard.has(review.flashcard_id)) {
-      latestByCard.set(review.flashcard_id, review);
-    }
-  }
-
-  const now = new Date();
-
-  const due: QueueItem[] = [];
-  const notDue: QueueItem[] = [];
-
-  for (const card of (cards ?? []) as FlashcardRow[]) {
-    const latest = latestByCard.get(card.id);
-    const nextReviewAt = latest?.next_review_at ?? null;
-    const isDue = Boolean(nextReviewAt && new Date(nextReviewAt) <= now);
-
-    const item: QueueItem = {
-      id: card.id,
-      en: card.en,
-      ja: card.ja,
-      nextReviewAt,
-      isDue
-    };
-
-    if (isDue) {
-      due.push(item);
-    } else {
-      notDue.push(item);
-    }
-  }
-
-  const createdAtById = new Map<string, string>();
-  for (const card of (cards ?? []) as FlashcardRow[]) {
-    createdAtById.set(card.id, card.created_at);
-  }
-
-  due.sort((a, b) => {
-    const nextA = a.nextReviewAt ? new Date(a.nextReviewAt).getTime() : Number.MAX_SAFE_INTEGER;
-    const nextB = b.nextReviewAt ? new Date(b.nextReviewAt).getTime() : Number.MAX_SAFE_INTEGER;
-    if (nextA !== nextB) {
-      return nextA - nextB;
-    }
-    return (createdAtById.get(b.id) ?? "").localeCompare(createdAtById.get(a.id) ?? "");
+  return buildReviewQueue({
+    cards: (cards ?? []) as FlashcardRow[],
+    reviews: (reviews ?? []) as FlashcardReviewRow[],
+    maxQueue: MAX_REVIEW_QUEUE
   });
-
-  notDue.sort((a, b) => (createdAtById.get(b.id) ?? "").localeCompare(createdAtById.get(a.id) ?? ""));
-
-  const queue = [...due, ...notDue].slice(0, MAX_REVIEW_QUEUE);
-
-  let nextDueAt: string | null = null;
-  for (const review of latestByCard.values()) {
-    const next = new Date(review.next_review_at);
-    if (next <= now) {
-      continue;
-    }
-    if (!nextDueAt || next < new Date(nextDueAt)) {
-      nextDueAt = review.next_review_at;
-    }
-  }
-
-  return {
-    queue,
-    total: queue.length,
-    nextDueAt
-  };
 }
 
 function json(payload: unknown, status = 200) {
