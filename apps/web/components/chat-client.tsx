@@ -123,6 +123,7 @@ export function ChatClient() {
       } finally {
         if (active) {
           setLoadingHistory(false);
+          requestAnimationFrame(scrollToTimelineBottom);
         }
       }
     };
@@ -133,10 +134,6 @@ export function ChatClient() {
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    scrollToTimelineBottom();
-  }, [messages, loading, loadingHistory, scrollToTimelineBottom]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -313,7 +310,6 @@ export function ChatClient() {
       });
     } finally {
       setLoading(false);
-      requestAnimationFrame(scrollToTimelineBottom);
     }
   };
 
