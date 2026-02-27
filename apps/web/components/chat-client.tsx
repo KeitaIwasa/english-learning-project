@@ -38,6 +38,11 @@ type AskStreamDonePayload = {
   reviewHints?: string[];
 };
 
+type AskStreamErrorPayload = {
+  message?: string;
+  threadId?: string;
+};
+
 type UiMessage = {
   id: string;
   role: "user" | "assistant";
@@ -223,7 +228,10 @@ export function ChatClient() {
           }
 
           if (event === "error") {
-            const json = payload as { message?: string };
+            const json = payload as AskStreamErrorPayload;
+            if (json.threadId) {
+              setChatId(json.threadId);
+            }
             streamErrorText = `エラー: ${json.message ?? "stream error"}`;
             updateAssistant({ text: streamErrorText });
           }

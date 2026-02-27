@@ -42,8 +42,12 @@ Deno.serve(async (req) => {
     }
 
     if (mode === "translate") {
+      const threadId = await ensureThread(serviceClient, user.id, chatId, message);
       return streamTranslateResponse({
-        message
+        message,
+        threadId,
+        userId: user.id,
+        serviceClient
       });
     }
 
@@ -111,16 +115,40 @@ Deno.serve(async (req) => {
   }
 });
 
-function streamTranslateResponse(params: { message: string }) {
+function streamTranslateResponse(params: {
+  message: string;
+  threadId: string;
+  userId: string;
+  serviceClient: any;
+}) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const writeEvent = (event: "delta" | "done" | "error", payload: unknown) => {
+      const writeEvent = (
+        event: "delta" | "done" | "error",
+        payload: { text: string } | AskStreamDonePayload | { message: string; threadId?: string }
+      ) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
       };
 
       const process = async () => {
         try {
+          const { data: userMessage, error: userMessageError } = await params.serviceClient
+            .from("chat_messages")
+            .insert({
+              thread_id: params.threadId,
+              user_id: params.userId,
+              role: "user",
+              mode: "translate",
+              content: params.message
+            })
+            .select("id")
+            .single();
+
+          if (userMessageError || !userMessage?.id) {
+            throw userMessageError ?? new Error("Failed to persist translate user message");
+          }
+
           let answerText = "";
           for await (const chunk of streamWithGemini({
             model: appEnv.geminiFastModel(),
@@ -132,10 +160,22 @@ function streamTranslateResponse(params: { message: string }) {
             writeEvent("delta", { text: chunk });
           }
 
-          writeEvent("done", { reply: answerText.trim() });
+          const { error: assistantMessageError } = await params.serviceClient.from("chat_messages").insert({
+            thread_id: params.threadId,
+            user_id: params.userId,
+            role: "assistant",
+            mode: "translate",
+            content: answerText
+          });
+
+          if (assistantMessageError) {
+            throw assistantMessageError;
+          }
+
+          writeEvent("done", { reply: answerText.trim(), threadId: params.threadId });
         } catch (error) {
           console.error(error);
-          writeEvent("error", { message: String(error) });
+          writeEvent("error", { message: String(error), threadId: params.threadId });
         } finally {
           controller.close();
         }
@@ -240,7 +280,7 @@ function streamAskResponse(params: {
     start(controller) {
       const writeEvent = (
         event: "delta" | "done" | "error",
-        payload: { text: string } | AskStreamDonePayload | { message: string }
+        payload: { text: string } | AskStreamDonePayload | { message: string; threadId?: string }
       ) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
       };
@@ -321,7 +361,7 @@ function streamAskResponse(params: {
           writeEvent("done", { reply: answerText, threadId: params.threadId });
         } catch (error) {
           console.error(error);
-          writeEvent("error", { message: String(error) });
+          writeEvent("error", { message: String(error), threadId: params.threadId });
         } finally {
           controller.close();
         }
