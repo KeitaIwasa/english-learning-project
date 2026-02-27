@@ -4,6 +4,7 @@ const authFile = "tests/.auth/user.json";
 
 export default defineConfig({
   testDir: "./tests",
+  globalSetup: "./tests/global-setup-auth.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -21,7 +22,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: /.*authenticated\.spec\.ts/,
+      testIgnore: [/.*authenticated\.spec\.ts/, /.*\.setup\.ts/],
       use: { ...devices["Desktop Chrome"] }
     },
     {
