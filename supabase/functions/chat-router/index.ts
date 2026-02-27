@@ -8,7 +8,7 @@ import { buildAskContextTurns } from "../../../packages/shared/src/chat-context.
 type ChatMode = "translate" | "ask" | "add_flashcard";
 type AskStreamDonePayload = { reply: string; threadId: string };
 const ASK_CONTEXT_HISTORY_TURNS = 5;
-const ASK_CONTEXT_MAX_CHARS = 6000;
+const ASK_CONTEXT_MAX_CHARS = 10000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
