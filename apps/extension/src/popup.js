@@ -6,6 +6,7 @@ const statusEl = document.getElementById("status");
 const loginBtn = document.getElementById("loginBtn");
 const saveBtn = document.getElementById("saveBtn");
 const formArea = document.getElementById("formArea");
+let isLoggedIn = false;
 
 init();
 
@@ -114,8 +115,9 @@ async function addFlashcard() {
   jaInput.value = "";
 }
 
-function applyAuthState(isLoggedIn) {
-  if (isLoggedIn) {
+function applyAuthState(loggedIn) {
+  isLoggedIn = loggedIn;
+  if (loggedIn) {
     loginBtn.hidden = true;
     loginBtn.classList.add("force-hidden");
     loginBtn.style.display = "none";
@@ -135,6 +137,11 @@ function applyAuthState(isLoggedIn) {
 }
 
 function setStatus(message) {
+  if (!isLoggedIn) {
+    statusEl.textContent = "";
+    statusEl.hidden = true;
+    return;
+  }
   statusEl.textContent = message;
   statusEl.hidden = !message;
 }
