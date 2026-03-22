@@ -1073,6 +1073,9 @@ ul {
 
 .nfx-sidebar-body {
   min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .nfx-sidebar-title {
@@ -1118,6 +1121,7 @@ ul {
 }
 
 .nfx-history-list {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: grid;
@@ -1454,11 +1458,12 @@ ul {
 
 @media (max-width: 960px) {
   .nfx-page {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .nfx-sidebar {
-    max-height: 220px;
+    display: block;
+    max-height: none;
   }
 
   .nfx-history-toggle {
@@ -1476,5 +1481,14 @@ ul {
 
   .nfx-sidebar-body.open .nfx-history-list {
     max-height: 150px;
+  }
+
+  .nfx-main {
+    margin-top: 12px;
+    grid-template-rows: auto auto auto;
+  }
+
+  .nfx-result {
+    overflow: visible;
   }
 }
