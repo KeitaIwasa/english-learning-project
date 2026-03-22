@@ -55,7 +55,9 @@ export type Database = {
           file_size: number;
           mime_type: string;
           status: "uploaded" | "queued" | "processing" | "completed" | "failed";
-          storage_path: string | null;
+          gcs_bucket: string | null;
+          gcs_object_name: string | null;
+          gcs_upload_completed_at: string | null;
           transcript_full: string | null;
           corrections_json: Json;
           stats_json: Json;

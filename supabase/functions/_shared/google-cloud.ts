@@ -31,14 +31,28 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 }
 
 function parseServiceAccount(raw: string): ServiceAccount {
-  const parsed = JSON.parse(raw) as Partial<ServiceAccount>;
-  if (!parsed.client_email || !parsed.private_key) {
+  let source = String(raw ?? "").trim();
+  while (source.endsWith("\\n")) {
+    source = source.slice(0, -2).trim();
+  }
+
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(source);
+    if (typeof parsed === "string") {
+      parsed = JSON.parse(parsed);
+    }
+  } catch {
+    throw new Error("Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  }
+  const obj = parsed as Partial<ServiceAccount>;
+  if (!obj.client_email || !obj.private_key) {
     throw new Error("Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON");
   }
   return {
-    client_email: parsed.client_email,
-    private_key: parsed.private_key.replace(/\\n/g, "\n"),
-    token_uri: parsed.token_uri || TOKEN_AUDIENCE
+    client_email: obj.client_email,
+    private_key: obj.private_key.replace(/\\n/g, "\n"),
+    token_uri: obj.token_uri || TOKEN_AUDIENCE
   };
 }
 

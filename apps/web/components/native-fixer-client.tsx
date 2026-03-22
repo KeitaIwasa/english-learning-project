@@ -2,7 +2,7 @@
 
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, CheckCircle2, CircleAlert, CloudUpload, LoaderCircle, Plus } from "lucide-react";
-import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { formatTranscriptForDisplay } from "@/lib/native-fixer-transcript";
 
 type JobStatus = "uploaded" | "queued" | "processing" | "completed" | "failed";
 
@@ -189,25 +189,24 @@ export function NativeFixerClient() {
       });
       const createJson = (await createRes.json()) as {
         jobId?: string;
-        uploadPath?: string;
-        token?: string;
-        signedUploadUrl?: string;
+        gcsObjectName?: string;
+        gcsSignedUploadUrl?: string;
+        requiredHeaders?: Record<string, string>;
         error?: string;
       };
 
-      if (!createRes.ok || !createJson.jobId || !createJson.uploadPath || !createJson.token) {
+      if (!createRes.ok || !createJson.jobId || !createJson.gcsObjectName || !createJson.gcsSignedUploadUrl) {
         throw new Error(createJson.error ?? "ジョブ作成に失敗しました。");
       }
 
-      const browserClient = createSupabaseBrowserClient();
-      const uploadResult = await browserClient.storage
-        .from("speech-fixer-temp")
-        .uploadToSignedUrl(createJson.uploadPath, createJson.token, file, {
-          upsert: false
-        });
-
-      if (uploadResult.error) {
-        throw new Error(`音声アップロードに失敗しました: ${uploadResult.error.message}`);
+      const uploadRes = await fetch(createJson.gcsSignedUploadUrl, {
+        method: "PUT",
+        headers: createJson.requiredHeaders ?? { "Content-Type": file.type || "audio/mpeg" },
+        body: file
+      });
+      if (!uploadRes.ok) {
+        const body = await uploadRes.text().catch(() => "");
+        throw new Error(`音声アップロードに失敗しました: ${uploadRes.status} ${body}`);
       }
 
       const queueRes = await fetch(`/api/native-fixer/jobs/${createJson.jobId}/upload-complete`, {
@@ -470,7 +469,9 @@ export function NativeFixerClient() {
                 <div className="nfx-completed">
                   <div className="nfx-transcript">
                     <h4>文字起こし全文</h4>
-                    <div className="nfx-transcript-body">{detail.transcriptFull || "(文字起こし結果なし)"}</div>
+                    <div className="nfx-transcript-body">
+                      {detail.transcriptFull ? formatTranscriptForDisplay(detail.transcriptFull) : "(文字起こし結果なし)"}
+                    </div>
                   </div>
 
                   <div className="nfx-corrections">
