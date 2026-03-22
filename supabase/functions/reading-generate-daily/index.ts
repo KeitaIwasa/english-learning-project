@@ -1,13 +1,19 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient, createUserClient } from "../_shared/supabase.ts";
 import { appEnv } from "../_shared/env.ts";
-import { generateWithGemini, synthesizeSpeechWithGemini } from "../_shared/gemini.ts";
-import { calcCoverage, chooseTargets, estimateSimilarity, type LearningProfile } from "../_shared/learning.ts";
-import { computeLearningProfile } from "../_shared/profile-builder.ts";
+import { generateWithGemini, synthesizeSpeechWithGemini, type GeminiContent } from "../_shared/gemini.ts";
+import {
+  buildReadingConversation,
+  type ReadingChatMessage,
+  type ReadingFlashcard,
+  type ReadingFlashcardReview
+} from "../../../packages/shared/src/reading-conversation.ts";
 
-const MIN_COVERAGE = 0.7;
 const MAX_TRY = 3;
 const MAX_TTS_TRY = 3;
+const HISTORY_LOOKBACK_DAYS = 5;
+const CONTEXT_MAX_CHARS = 32000;
+const MAX_USED_TARGETS = 20;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -59,46 +65,91 @@ Deno.serve(async (req) => {
       });
     }
 
-    const profileRow = await getOrBuildProfile(serviceClient, userId, body?.profileId, targetDate);
-    const profile = rowToProfile(profileRow);
-    const chosen = chooseTargets(profile);
+    const sinceIso = isoDaysAgo(HISTORY_LOOKBACK_DAYS);
+    const [{ data: chatRows, error: chatError }, { data: cardRows, error: cardError }] = await Promise.all([
+      serviceClient
+        .from("chat_messages")
+        .select("thread_id, mode, role, content, created_at")
+        .eq("user_id", userId)
+        .in("mode", ["ask", "translate"])
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: true }),
+      serviceClient.from("flashcards").select("id, en, ja, created_at").eq("user_id", userId)
+    ]);
 
-    const { data: yesterday } = await serviceClient
-      .from("reading_passages")
-      .select("body_en")
+    if (chatError) {
+      throw chatError;
+    }
+    if (cardError) {
+      throw cardError;
+    }
+
+    const cardIds = (cardRows ?? []).map((card: { id: string }) => card.id);
+    const { data: reviewRows, error: reviewError } = await serviceClient
+      .from("flashcard_reviews")
+      .select("flashcard_id, quality, reviewed_at")
       .eq("user_id", userId)
-      .lt("generated_for_date", targetDate)
-      .order("generated_for_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .in("flashcard_id", cardIds.length > 0 ? cardIds : ["00000000-0000-0000-0000-000000000000"])
+      .order("reviewed_at", { ascending: false });
+
+    if (reviewError) {
+      throw reviewError;
+    }
+
+    const pseudoConversation = buildReadingConversation({
+      chatMessages: (chatRows ?? []).map(
+        (row: { mode: string; role: string; content: string; created_at: string; thread_id: string | null }) =>
+          ({
+            mode: row.mode,
+            role: row.role,
+            content: row.content,
+            createdAt: row.created_at,
+            threadId: row.thread_id
+          }) satisfies ReadingChatMessage
+      ),
+      flashcards: (cardRows ?? []).map(
+        (row: { id: string; en: string; ja: string; created_at: string }) =>
+          ({
+            id: row.id,
+            en: row.en,
+            ja: row.ja,
+            createdAt: row.created_at
+          }) satisfies ReadingFlashcard
+      ),
+      flashcardReviews: (reviewRows ?? []).map(
+        (row: { flashcard_id: string; quality: number; reviewed_at: string }) =>
+          ({
+            flashcardId: row.flashcard_id,
+            quality: Number(row.quality),
+            reviewedAt: row.reviewed_at
+          }) satisfies ReadingFlashcardReview
+      ),
+      maxChars: CONTEXT_MAX_CHARS
+    });
+
+    console.log(
+      `[reading-generate-daily] pseudo-context userId=${userId} askCount=${pseudoConversation.stats.askCount} translatePairCount=${pseudoConversation.stats.translatePairCount} flashcardPairCount=${pseudoConversation.stats.flashcardPairCount} trimmedCount=${pseudoConversation.stats.trimmedCount} contextChars=${pseudoConversation.stats.contextChars}`
+    );
+
+    const conversationContents: GeminiContent[] = pseudoConversation.turns.map((turn) => ({
+      role: turn.role,
+      parts: [{ text: turn.text }]
+    }));
 
     let generated: GeneratedReading | null = null;
-    let coverage = 0;
-
     for (let attempt = 0; attempt < MAX_TRY; attempt += 1) {
       try {
-        const candidate = await generateReading({
-          reviewTargets: chosen.review,
-          freshTargets: chosen.fresh,
-          grammarTargets: profile.grammarTargets
+        generated = await generateReading({
+          conversationContents
         });
-
-        const candidateCoverage = calcCoverage(chosen.review, candidate.used_targets.review);
-        const similarity = yesterday?.body_en ? estimateSimilarity(yesterday.body_en, candidate.passage) : 0;
-
-        if (candidateCoverage >= MIN_COVERAGE && similarity < 0.8) {
-          generated = candidate;
-          coverage = candidateCoverage;
-          break;
-        }
+        break;
       } catch (error) {
         console.error(`[reading-generate-daily] generation attempt failed (${attempt + 1}/${MAX_TRY})`, error);
       }
     }
 
     if (!generated) {
-      generated = fallbackReading(chosen.review, chosen.fresh, profile.grammarTargets);
-      coverage = calcCoverage(chosen.review, generated.used_targets.review);
+      generated = fallbackReading();
     }
 
     let ttsAudio: { audioBase64: string; mimeType: string; voice: string } | null = null;
@@ -122,26 +173,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    const usedReviewTargets = pseudoConversation.usedReviewTargets.slice(0, MAX_USED_TARGETS);
+    const usedNewTargets = pseudoConversation.usedNewTargets.slice(0, MAX_USED_TARGETS);
     const rationale = {
-      reason: "期限カード・誤答傾向・チャット要約特徴を反映",
-      grammarTargets: profile.grammarTargets,
-      coverage,
-      requiredReviewCount: chosen.review.length,
-      usedReviewCount: generated.used_targets.review.length
+      reason: "5日以内のask/翻訳履歴と未習熟フラッシュカードを擬似会話として反映",
+      askCount: pseudoConversation.stats.askCount,
+      translatePairCount: pseudoConversation.stats.translatePairCount,
+      flashcardPairCount: pseudoConversation.stats.flashcardPairCount,
+      trimmedCount: pseudoConversation.stats.trimmedCount,
+      contextChars: pseudoConversation.stats.contextChars
     };
 
     const { data: inserted, error: insertError } = await serviceClient
       .from("reading_passages")
       .insert({
         user_id: userId,
-        profile_id: profileRow.id,
+        profile_id: null,
         title: generated.title,
         body_en: generated.passage,
         glossary_ja_json: generated.glossary,
         difficulty: "A2-B1",
         generated_for_date: targetDate,
-        used_review_targets_json: generated.used_targets.review,
-        used_new_targets_json: generated.used_targets.new,
+        used_review_targets_json: usedReviewTargets,
+        used_new_targets_json: usedNewTargets,
         audio_base64: ttsAudio?.audioBase64 ?? null,
         audio_mime_type: ttsAudio?.mimeType ?? null,
         audio_voice: ttsAudio?.voice ?? null,
@@ -154,13 +208,15 @@ Deno.serve(async (req) => {
       if (insertError.code === "23505") {
         const { data: duplicated } = await serviceClient
           .from("reading_passages")
-          .select("id, audio_base64, audio_mime_type")
+          .select("id, used_review_targets_json, used_new_targets_json, audio_base64, audio_mime_type")
           .eq("user_id", userId)
           .eq("generated_for_date", targetDate)
           .maybeSingle();
         return json({
           created: false,
           passageId: duplicated?.id ?? null,
+          usedReviewTargets: (duplicated?.used_review_targets_json as string[] | null) ?? [],
+          usedNewTargets: (duplicated?.used_new_targets_json as string[] | null) ?? [],
           hasAudio: Boolean(duplicated?.audio_base64 && duplicated?.audio_mime_type)
         });
       }
@@ -170,8 +226,8 @@ Deno.serve(async (req) => {
     return json({
       created: true,
       passageId: inserted.id,
-      usedReviewTargets: generated.used_targets.review,
-      usedNewTargets: generated.used_targets.new,
+      usedReviewTargets,
+      usedNewTargets,
       hasAudio: Boolean(ttsAudio)
     });
   } catch (error) {
@@ -179,13 +235,6 @@ Deno.serve(async (req) => {
     return json({ error: String(error) }, 500);
   }
 });
-
-type LearningProfileRow = {
-  id: string;
-  review_targets_json: unknown;
-  grammar_targets_json: unknown;
-  new_candidates_json: unknown;
-};
 
 type GeneratedReading = {
   title: string;
@@ -198,98 +247,31 @@ type GeneratedReading = {
   };
 };
 
-async function getOrBuildProfile(
-  serviceClient: any,
-  userId: string,
-  profileId: string | undefined,
-  targetDate: string
-): Promise<LearningProfileRow> {
-  if (profileId) {
-    const { data, error } = await serviceClient
-      .from("learning_profiles")
-      .select("id, review_targets_json, grammar_targets_json, new_candidates_json")
-      .eq("id", profileId)
-      .eq("user_id", userId)
-      .single();
+async function generateReading(params: { conversationContents: GeminiContent[] }): Promise<GeneratedReading> {
+  const finalPrompt = [
+    "以下の会話履歴を学習文脈として、英語学習者向けの音読トレーニング文章を作ってください。",
+    "必須条件:",
+    "- 本文は180〜220語程度の自然な英文",
+    "- 音読しやすい構文と語彙難易度（A2-B1）",
+    "- 学習文脈に沿った語彙・言い回しを適度に再利用",
+    "- 必ずJSONのみを返す",
+    "- 出力スキーマ:",
+    '{ "title": "string", "passage": "string", "glossary": [{ "en": "string", "ja": "string" }], "review_points": [{ "target": "string", "explanationJa": "string", "excerpt": "string" }], "used_targets": { "review": ["string"], "new": ["string"] } }'
+  ].join("\n");
 
-    if (error) {
-      throw error;
+  const contents: GeminiContent[] = [
+    ...params.conversationContents,
+    {
+      role: "user",
+      parts: [{ text: finalPrompt }]
     }
-
-    return data;
-  }
-
-  const { data: existing } = await serviceClient
-    .from("learning_profiles")
-    .select("id, review_targets_json, grammar_targets_json, new_candidates_json")
-    .eq("user_id", userId)
-    .eq("target_date", targetDate)
-    .maybeSingle();
-
-  if (existing) {
-    return existing;
-  }
-
-  const profile = await computeLearningProfile({
-    serviceClient,
-    userId,
-    lookbackDays: 14,
-    targetDate
-  });
-
-  const { data: upserted, error: upsertError } = await serviceClient
-    .from("learning_profiles")
-    .upsert(
-      {
-        user_id: userId,
-        target_date: targetDate,
-        lookback_days: 14,
-        review_targets_json: profile.reviewTargets,
-        grammar_targets_json: profile.grammarTargets,
-        new_candidates_json: profile.newCandidates
-      },
-      { onConflict: "user_id,target_date" }
-    )
-    .select("id, review_targets_json, grammar_targets_json, new_candidates_json")
-    .single();
-
-  if (upsertError) {
-    throw upsertError;
-  }
-
-  return upserted;
-}
-
-async function generateReading(params: {
-  reviewTargets: string[];
-  freshTargets: string[];
-  grammarTargets: string[];
-}): Promise<GeneratedReading> {
-  const prompt = {
-    requirements: {
-      reviewRatio: "70%",
-      newRatio: "30%",
-      includeReviewTargets: params.reviewTargets,
-      includeNewTargets: params.freshTargets,
-      includeGrammarTargets: params.grammarTargets
-    },
-    outputSchema: {
-      title: "string",
-      passage: "string",
-      glossary: [{ en: "string", ja: "string" }],
-      review_points: [{ target: "string", explanationJa: "string", excerpt: "string" }],
-      used_targets: {
-        review: ["string"],
-        new: ["string"]
-      }
-    }
-  };
+  ];
 
   const generated = await generateWithGemini({
     model: appEnv.geminiReasoningModel(),
     instruction:
-      "あなたは英語学習コンテンツ生成アシスタントです。必ずJSONのみを返してください。本文は180〜220語程度で、音読しやすい自然な英文にしてください。",
-    input: JSON.stringify(prompt),
+      "あなたは英語学習コンテンツ生成アシスタントです。与えられた会話履歴を学習文脈として活用し、必ずJSONのみを返してください。",
+    contents,
     responseMimeType: "application/json"
   });
 
@@ -310,36 +292,23 @@ async function generateReading(params: {
   };
 }
 
-function fallbackReading(reviewTargets: string[], freshTargets: string[], grammarTargets: string[]): GeneratedReading {
-  const reviewText = reviewTargets.slice(0, 4).join(", ");
-  const freshText = freshTargets.slice(0, 2).join(", ");
-
-  const passage = `Today I will review what I learned recently. I want to reuse these expressions: ${reviewText}. I also challenge myself with new expressions like ${freshText}. While reading, I pay attention to grammar points such as ${grammarTargets.join(", ") || "word order"}. I write short sentences, read them aloud, and check if they sound natural. This routine helps me remember old knowledge and connect it to new ideas.`;
+function fallbackReading(): GeneratedReading {
+  const passage =
+    "Mika started her day with a short English routine before work. She opened her notebook and wrote three simple goals: review one old phrase, learn one new phrase, and speak for five minutes without stopping. First, she practiced a phrase she had learned before and tried to use it in two new sentences. Then she checked a new expression and compared it with a similar one to understand the difference in nuance. During lunch, she sent a short message in English to a friend and read the reply aloud. In the evening, she listened to a short dialogue and repeated each line slowly, paying attention to stress and rhythm. She noticed that clear pronunciation helped her remember the words better. Before bed, she recorded a one-minute summary of her day in English. The routine was simple, but it made her feel more confident and prepared for real conversations.";
 
   return {
-    title: "Daily Review Reading",
+    title: "Daily English Routine",
     passage,
     glossary: [
       { en: "routine", ja: "習慣" },
-      { en: "expression", ja: "表現" }
+      { en: "stress", ja: "強勢" },
+      { en: "nuance", ja: "ニュアンス" }
     ],
-    review_points: reviewTargets.slice(0, 3).map((target) => ({
-      target,
-      explanationJa: "既習表現として再登場",
-      excerpt: target
-    })),
+    review_points: [],
     used_targets: {
-      review: reviewTargets.slice(0, 4),
-      new: freshTargets.slice(0, 2)
+      review: [],
+      new: []
     }
-  };
-}
-
-function rowToProfile(row: LearningProfileRow): LearningProfile {
-  return {
-    reviewTargets: Array.isArray(row.review_targets_json) ? (row.review_targets_json as string[]) : [],
-    grammarTargets: Array.isArray(row.grammar_targets_json) ? (row.grammar_targets_json as string[]) : [],
-    newCandidates: Array.isArray(row.new_candidates_json) ? (row.new_candidates_json as string[]) : []
   };
 }
 
@@ -348,7 +317,6 @@ function parseGeneratedReadingJson(rawText: string): GeneratedReading {
   try {
     return JSON.parse(trimmed) as GeneratedReading;
   } catch {
-    // Gemini may occasionally wrap JSON with ```json fences even when JSON is requested.
     const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     if (fencedMatch?.[1]) {
       return JSON.parse(fencedMatch[1]) as GeneratedReading;
@@ -383,6 +351,11 @@ function decodeBase64Url(value: string): string {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
   return atob(padded);
+}
+
+function isoDaysAgo(days: number): string {
+  const now = Date.now();
+  return new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function todayDate() {
