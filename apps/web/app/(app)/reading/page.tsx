@@ -25,13 +25,23 @@ export default async function ReadingPage() {
 
   const latest = passages?.[0];
   const reviewTargets = (latest?.used_review_targets_json as string[] | null) ?? [];
-  const rationale = (latest?.rationale_json as { grammarTargets?: string[]; reason?: string } | null) ?? {};
+  const rationale =
+    (latest?.rationale_json as
+      | {
+          reason?: string;
+          askCount?: number;
+          translatePairCount?: number;
+          flashcardPairCount?: number;
+          trimmedCount?: number;
+          contextChars?: number;
+        }
+      | null) ?? {};
 
   return (
     <div className="grid">
       <section className="panel">
         <h2>音読トレーニング</h2>
-        <p className="muted">毎朝06:00 JSTに、直近14日の学習内容から復習最適化して自動生成されます。</p>
+        <p className="muted">毎朝06:00 JSTに、直近5日以内の会話履歴と未習熟フラッシュカードから自動生成されます。</p>
         <ReadingGenerateButton />
       </section>
 
@@ -51,9 +61,19 @@ export default async function ReadingPage() {
               <li key={target}>{target}</li>
             ))}
           </ul>
-          <p className="muted">選定理由: {rationale.reason ?? "カード期限・誤答傾向・チャット特徴を反映"}</p>
-          {Array.isArray(rationale.grammarTargets) && rationale.grammarTargets.length > 0 ? (
-            <p className="muted">文法ターゲット: {rationale.grammarTargets.join(", ")}</p>
+          <p className="muted">選定理由: {rationale.reason ?? "会話履歴とフラッシュカードを反映"}</p>
+          {typeof rationale.askCount === "number" ||
+          typeof rationale.translatePairCount === "number" ||
+          typeof rationale.flashcardPairCount === "number" ? (
+            <p className="muted">
+              反映コンテキスト: ask {rationale.askCount ?? 0}件 / 翻訳 {rationale.translatePairCount ?? 0}ペア /
+              フラッシュカード {rationale.flashcardPairCount ?? 0}ペア
+            </p>
+          ) : null}
+          {typeof rationale.trimmedCount === "number" || typeof rationale.contextChars === "number" ? (
+            <p className="muted">
+              トリム: {rationale.trimmedCount ?? 0}件, 入力文字数: {rationale.contextChars ?? 0}
+            </p>
           ) : null}
         </section>
       ) : (

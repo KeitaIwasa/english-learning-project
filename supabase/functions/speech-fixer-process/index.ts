@@ -275,7 +275,6 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
       });
       return "failed" as const;
     }
-
     const correctionStartedAt = new Date().toISOString();
     const corrections = await buildSpeechFixCorrections(transcript);
     const correctionCompletedAt = new Date().toISOString();
@@ -415,7 +414,6 @@ function isLowQualityTranscript(
   }
   return false;
 }
-
 function normalizeGcsField(value: unknown): string {
   return String(value ?? "")
     .replace(/\\n/g, "")

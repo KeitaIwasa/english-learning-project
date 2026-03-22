@@ -245,6 +245,20 @@ ul {
   padding-right: 6px;
 }
 
+.chat-load-more-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.chat-load-more-button {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #17325b;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
 .bubble {
   max-width: min(78ch, 88%);
   border-radius: 16px;

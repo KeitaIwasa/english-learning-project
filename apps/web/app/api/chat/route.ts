@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { chatRouterRequestSchema } from "@/lib/schemas";
 
-export async function GET() {
+const DEFAULT_HISTORY_LIMIT = 10;
+const MAX_HISTORY_LIMIT = 50;
+
+export async function GET(request: Request) {
   const supabase = await createSupabaseServerClient();
   const { data: auth } = await supabase.auth.getUser();
 
@@ -10,17 +13,42 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  const { searchParams } = new URL(request.url);
+  const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
+  const before = searchParams.get("before");
+  const limit =
+    Number.isFinite(limitParam) && limitParam > 0
+      ? Math.min(limitParam, MAX_HISTORY_LIMIT)
+      : DEFAULT_HISTORY_LIMIT;
+
+  if (before && Number.isNaN(Date.parse(before))) {
+    return NextResponse.json({ error: "Invalid before cursor" }, { status: 400 });
+  }
+
+  let query = supabase
     .from("chat_messages")
     .select("id, thread_id, role, mode, content, created_at")
     .eq("user_id", auth.user.id)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(limit + 1);
+
+  if (before) {
+    query = query.lt("created_at", before);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ messages: data ?? [] });
+  const rows = data ?? [];
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const nextBefore = hasMore ? pageRows.at(-1)?.created_at ?? null : null;
+  const messages = [...pageRows].reverse();
+
+  return NextResponse.json({ messages, hasMore, nextBefore });
 }
 
 export async function POST(request: Request) {
