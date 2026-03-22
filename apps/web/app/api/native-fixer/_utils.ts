@@ -22,7 +22,9 @@ export type SpeechFixJob = {
   file_size: number;
   mime_type: string;
   status: SpeechFixStatus;
-  storage_path: string | null;
+  gcs_bucket: string | null;
+  gcs_object_name: string | null;
+  gcs_upload_completed_at: string | null;
   transcript_full: string | null;
   corrections_json: Json;
   stats_json: Json;
@@ -83,7 +85,7 @@ export function normalizeCorrections(value: Json): SpeechFixCorrection[] {
   return out;
 }
 
-export function createStoragePath(params: { userId: string; jobId: string; fileName: string }) {
+export function createGcsObjectName(params: { userId: string; jobId: string; fileName: string }) {
   const safeName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return `${params.userId}/${params.jobId}/${safeName}`;
+  return `speech-fixer/${params.userId}/${params.jobId}/${safeName}`;
 }

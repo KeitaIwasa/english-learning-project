@@ -6,8 +6,7 @@ import {
   extractTranscriptFromSpeechResponse,
   getGoogleAccessToken,
   getSpeechOperation,
-  startSpeechLongRunningRecognize,
-  uploadToGcs
+  startSpeechLongRunningRecognize
 } from "../_shared/google-cloud.ts";
 import { buildSpeechFixCorrections } from "../_shared/speech-fixer.ts";
 
@@ -18,7 +17,9 @@ type SpeechFixJobRow = {
   file_size: number;
   mime_type: string;
   status: "uploaded" | "queued" | "processing" | "completed" | "failed";
-  storage_path: string | null;
+  gcs_bucket: string | null;
+  gcs_object_name: string | null;
+  gcs_upload_completed_at: string | null;
   transcript_full: string | null;
   corrections_json: unknown;
   stats_json: unknown;
@@ -45,7 +46,7 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
-    if (!authHeader || authHeader !== appEnv.supabaseServiceRoleKey()) {
+    if (!isAuthorizedServiceRole(authHeader)) {
       return json({ error: "Unauthorized" }, 401);
     }
 
@@ -53,8 +54,8 @@ Deno.serve(async (req) => {
     const payload = await readBody(req);
     const limit = Math.max(1, Math.min(10, Number(payload?.limit ?? MAX_BATCH_DEFAULT)));
 
-    const processingResult = await runProcessingJobs(serviceClient, limit);
     const queuedResult = await runQueuedJobs(serviceClient, limit);
+    const processingResult = await runProcessingJobs(serviceClient, limit);
 
     return json({
       ok: true,
@@ -121,10 +122,10 @@ async function runQueuedJobs(serviceClient: ReturnType<typeof createServiceClien
 }
 
 async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow) {
-  const bucket = appEnv.speechFixerTempBucket();
-  const gcsBucket = appEnv.googleCloudTempBucket();
+  const currentStats = getStats(job);
 
   try {
+    const processingClaimedAt = new Date().toISOString();
     const claim = await serviceClient
       .from("speech_fix_jobs")
       .update({
@@ -140,21 +141,10 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
       return false;
     }
 
-    if (!job.storage_path) {
-      await failJob(serviceClient, job, "storage_path is missing");
-      return false;
-    }
-
-    const { data: fileData, error: downloadError } = await serviceClient.storage.from(bucket).download(job.storage_path);
-    if (downloadError || !fileData) {
-      await failJob(serviceClient, job, `audio download failed: ${downloadError?.message ?? "missing file"}`);
-      return false;
-    }
-
-    const arrayBuffer = await fileData.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.byteLength === 0) {
-      await failJob(serviceClient, job, "audio file is empty");
+    const gcsBucket = normalizeGcsField(job.gcs_bucket);
+    const gcsObjectName = normalizeGcsField(job.gcs_object_name);
+    if (!gcsBucket || !gcsObjectName) {
+      await failJob(serviceClient, job, "gcs bucket/object missing");
       return false;
     }
 
@@ -163,15 +153,7 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     });
 
-    const safeFileName = job.file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const objectName = `speech-fixer/${job.user_id}/${job.id}/${safeFileName}`;
-    const gcsUri = await uploadToGcs({
-      accessToken: googleAccessToken,
-      bucket: gcsBucket,
-      objectName,
-      contentType: job.mime_type || "application/octet-stream",
-      bytes
-    });
+    const gcsUri = `gs://${gcsBucket}/${gcsObjectName}`;
 
     const operationName = await startSpeechLongRunningRecognize({
       accessToken: googleAccessToken,
@@ -179,13 +161,19 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
       gcsUri
     });
 
+    const queuedAt = asIsoString(currentStats.queuedAt) ?? job.updated_at ?? job.created_at;
+    const queueWaitMs = diffMs(queuedAt, processingClaimedAt);
+    const sttStartedAt = new Date().toISOString();
     const nextStats = {
-      ...getStats(job),
+      ...currentStats,
+      queuedAt,
+      processingClaimedAt,
+      queueWaitMs,
       gcsBucket,
-      gcsObjectName: objectName,
+      gcsObjectName,
       gcsUri,
       sttOperationName: operationName,
-      sttStartedAt: new Date().toISOString()
+      sttStartedAt
     };
 
     const { error: updateError } = await serviceClient
@@ -240,13 +228,23 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
       return "failed" as const;
     }
 
+    const correctionStartedAt = new Date().toISOString();
     const corrections = await buildSpeechFixCorrections(transcript);
-    const completedAt = new Date().toISOString();
+    const correctionCompletedAt = new Date().toISOString();
+    const sttCompletedAt = correctionStartedAt;
+    const sttMs = diffMs(asIsoString(stats.sttStartedAt), sttCompletedAt);
+    const correctionMs = diffMs(correctionStartedAt, correctionCompletedAt);
+    const totalMs = diffMs(asIsoString(stats.queuedAt) ?? job.created_at, correctionCompletedAt);
     const nextStats = {
       ...stats,
       transcriptLength: transcript.length,
       correctionCount: corrections.length,
-      sttCompletedAt: completedAt
+      sttCompletedAt,
+      correctionStartedAt,
+      correctionCompletedAt,
+      sttMs,
+      correctionMs,
+      totalMs
     };
 
     const { error: updateError } = await serviceClient
@@ -257,7 +255,7 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
         corrections_json: corrections,
         stats_json: nextStats,
         error_message: null,
-        completed_at: completedAt
+        completed_at: correctionCompletedAt
       })
       .eq("id", job.id);
 
@@ -290,17 +288,9 @@ async function failJob(serviceClient: ReturnType<typeof createServiceClient>, jo
 }
 
 async function cleanupTempAudio(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow) {
-  const bucket = appEnv.speechFixerTempBucket();
   const stats = getStats(job);
-  const gcsBucket = typeof stats.gcsBucket === "string" ? stats.gcsBucket : "";
-  const gcsObjectName = typeof stats.gcsObjectName === "string" ? stats.gcsObjectName : "";
-
-  if (job.storage_path) {
-    const { error } = await serviceClient.storage.from(bucket).remove([job.storage_path]);
-    if (error) {
-      console.error(`[speech-fixer] failed to remove supabase temp file: ${error.message}`);
-    }
-  }
+  const gcsBucket = normalizeGcsField(job.gcs_bucket || (typeof stats.gcsBucket === "string" ? stats.gcsBucket : ""));
+  const gcsObjectName = normalizeGcsField(job.gcs_object_name || (typeof stats.gcsObjectName === "string" ? stats.gcsObjectName : ""));
 
   if (gcsBucket && gcsObjectName) {
     try {
@@ -317,13 +307,6 @@ async function cleanupTempAudio(serviceClient: ReturnType<typeof createServiceCl
       console.error(`[speech-fixer] failed to remove gcs temp file: ${String(error)}`);
     }
   }
-
-  await serviceClient
-    .from("speech_fix_jobs")
-    .update({
-      storage_path: null
-    })
-    .eq("id", job.id);
 }
 
 function getStats(job: SpeechFixJobRow): JobStats {
@@ -331,6 +314,31 @@ function getStats(job: SpeechFixJobRow): JobStats {
     return {};
   }
   return job.stats_json as JobStats;
+}
+
+function asIsoString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return Number.isNaN(Date.parse(value)) ? null : value;
+}
+
+function diffMs(start: string | null, end: string | null): number | null {
+  if (!start || !end) {
+    return null;
+  }
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    return null;
+  }
+  return Math.max(0, endMs - startMs);
+}
+
+function normalizeGcsField(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\\n/g, "")
+    .trim();
 }
 
 async function readBody(req: Request): Promise<Record<string, unknown> | null> {
@@ -352,4 +360,51 @@ function json(payload: unknown, status = 200) {
       "Content-Type": "application/json"
     }
   });
+}
+
+function isAuthorizedServiceRole(token: string): boolean {
+  if (!token) {
+    return false;
+  }
+
+  const configured = appEnv.supabaseServiceRoleKey();
+  if (token === configured) {
+    return true;
+  }
+
+  const payload = parseJwtPayload(token);
+  if (!payload || payload.role !== "service_role") {
+    return false;
+  }
+
+  const expectedRef = extractProjectRef(appEnv.supabaseUrl());
+  if (!expectedRef) {
+    return false;
+  }
+  return payload.ref === expectedRef;
+}
+
+function parseJwtPayload(token: string): { role?: string; ref?: string } | null {
+  const parts = token.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const decoded = atob(padded);
+    const parsed = JSON.parse(decoded) as { role?: string; ref?: string };
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractProjectRef(supabaseUrl: string): string {
+  try {
+    const host = new URL(supabaseUrl).hostname;
+    return host.split(".")[0] ?? "";
+  } catch {
+    return "";
+  }
 }

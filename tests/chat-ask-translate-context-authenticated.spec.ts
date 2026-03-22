@@ -4,14 +4,14 @@ test("ask sends thread id created by translate so translation history can be use
   const threadId = "22222222-2222-4222-8222-222222222222";
   const sentBodies: Array<Record<string, unknown>> = [];
 
-  await page.route("**/api/chat", async (route) => {
+  await page.route("**/api/chat**", async (route) => {
     const request = route.request();
 
     if (request.method() === "GET") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ messages: [] })
+        body: JSON.stringify({ messages: [], hasMore: false, nextBefore: null })
       });
       return;
     }

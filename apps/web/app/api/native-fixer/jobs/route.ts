@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { speechFixJobCreateSchema } from "@/lib/schemas";
-import { createAdminSupabaseClient, createStoragePath, requireAuthUser, type SpeechFixJob } from "../_utils";
+import { buildGcsV4SignedPutUrl, parseGoogleServiceAccount } from "@/lib/google-cloud";
+import { createGcsObjectName, requireAuthUser, type SpeechFixJob } from "../_utils";
 
-const TEMP_BUCKET = "speech-fixer-temp";
+const GCS_SIGN_EXPIRES_SECONDS = 15 * 60;
 
 export async function GET() {
   const { supabase, user } = await requireAuthUser();
@@ -35,64 +36,83 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { supabase, user } = await requireAuthUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const { supabase, user } = await requireAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const parsed = speechFixJobCreateSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    }
+
+    const { fileName, fileSize, mimeType } = parsed.data;
+    const bucket = normalizeGcsField(process.env.GCS_TEMP_BUCKET);
+    const serviceAccountJson = String(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ?? "").trim();
+    if (!bucket || !serviceAccountJson) {
+      return NextResponse.json({ error: "Missing GCS_TEMP_BUCKET or GOOGLE_APPLICATION_CREDENTIALS_JSON" }, { status: 500 });
+    }
+
+    const { data: created, error: createError } = await supabase
+      .from("speech_fix_jobs")
+      .insert({
+        user_id: user.id,
+        file_name: fileName,
+        file_size: fileSize,
+        mime_type: mimeType,
+        status: "uploaded"
+      })
+      .select("*")
+      .single();
+
+    if (createError || !created) {
+      return NextResponse.json({ error: createError?.message ?? "Failed to create job" }, { status: 500 });
+    }
+
+    const createdJob = created as SpeechFixJob;
+    const gcsObjectName = createGcsObjectName({
+      userId: user.id,
+      jobId: createdJob.id,
+      fileName
+    });
+
+    const { error: pathSaveError } = await supabase
+      .from("speech_fix_jobs")
+      .update({
+        gcs_bucket: bucket,
+        gcs_object_name: gcsObjectName
+      })
+      .eq("id", createdJob.id);
+
+    if (pathSaveError) {
+      return NextResponse.json({ error: pathSaveError.message }, { status: 500 });
+    }
+
+    const serviceAccount = parseGoogleServiceAccount(serviceAccountJson);
+    const gcsSignedUploadUrl = buildGcsV4SignedPutUrl({
+      serviceAccount,
+      bucket,
+      objectName: gcsObjectName,
+      contentType: mimeType,
+      expiresSeconds: GCS_SIGN_EXPIRES_SECONDS
+    });
+
+    return NextResponse.json({
+      jobId: createdJob.id,
+      gcsObjectName,
+      gcsSignedUploadUrl,
+      requiredHeaders: {
+        "Content-Type": mimeType
+      }
+    });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
+}
 
-  const parsed = speechFixJobCreateSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
-
-  const { fileName, fileSize, mimeType } = parsed.data;
-  const { data: created, error: createError } = await supabase
-    .from("speech_fix_jobs")
-    .insert({
-      user_id: user.id,
-      file_name: fileName,
-      file_size: fileSize,
-      mime_type: mimeType,
-      status: "uploaded"
-    })
-    .select("*")
-    .single();
-
-  if (createError || !created) {
-    return NextResponse.json({ error: createError?.message ?? "Failed to create job" }, { status: 500 });
-  }
-
-  const createdJob = created as SpeechFixJob;
-  const uploadPath = createStoragePath({
-    userId: user.id,
-    jobId: createdJob.id,
-    fileName
-  });
-
-  const { error: pathSaveError } = await supabase
-    .from("speech_fix_jobs")
-    .update({
-      storage_path: uploadPath
-    })
-    .eq("id", createdJob.id);
-
-  if (pathSaveError) {
-    return NextResponse.json({ error: pathSaveError.message }, { status: 500 });
-  }
-
-  const adminClient = createAdminSupabaseClient();
-  const uploadSignResult = await adminClient.storage.from(TEMP_BUCKET).createSignedUploadUrl(uploadPath);
-  if (uploadSignResult.error || !uploadSignResult.data?.signedUrl) {
-    return NextResponse.json(
-      { error: uploadSignResult.error?.message ?? "Failed to create signed upload URL" },
-      { status: 500 }
-    );
-  }
-
-  return NextResponse.json({
-    jobId: createdJob.id,
-    uploadPath,
-    signedUploadUrl: uploadSignResult.data.signedUrl,
-    token: uploadSignResult.data.token
-  });
+function normalizeGcsField(value: unknown) {
+  return String(value ?? "")
+    .replace(/\\n/g, "")
+    .trim();
 }
