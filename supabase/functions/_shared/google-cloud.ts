@@ -1,6 +1,7 @@
 type ServiceAccount = {
   client_email: string;
   private_key: string;
+  project_id?: string;
   token_uri?: string;
 };
 
@@ -52,6 +53,7 @@ function parseServiceAccount(raw: string): ServiceAccount {
   return {
     client_email: obj.client_email,
     private_key: obj.private_key.replace(/\\n/g, "\n"),
+    project_id: obj.project_id,
     token_uri: obj.token_uri || TOKEN_AUDIENCE
   };
 }
@@ -155,12 +157,26 @@ export async function deleteFromGcs(params: {
   }
 }
 
-export async function startSpeechLongRunningRecognize(params: {
+export function getGoogleProjectIdFromServiceAccountJson(serviceAccountJson: string) {
+  const serviceAccount = parseServiceAccount(serviceAccountJson);
+  const projectId = String(serviceAccount.project_id ?? "").trim();
+  if (!projectId) {
+    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON missing project_id");
+  }
+  return projectId;
+}
+
+export async function startSpeechBatchRecognize(params: {
   accessToken: string;
+  projectId: string;
+  location: string;
   languageCode: string;
+  model: string;
   gcsUri: string;
 }) {
-  const response = await fetch("https://speech.googleapis.com/v1/speech:longrunningrecognize", {
+  const base = `https://${encodeURIComponent(params.location)}-speech.googleapis.com`;
+  const path = `/v2/projects/${encodeURIComponent(params.projectId)}/locations/${encodeURIComponent(params.location)}/recognizers/_:batchRecognize`;
+  const response = await fetch(`${base}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${params.accessToken}`,
@@ -168,17 +184,21 @@ export async function startSpeechLongRunningRecognize(params: {
     },
     body: JSON.stringify({
       config: {
-        languageCode: params.languageCode,
-        enableAutomaticPunctuation: true,
-        model: "latest_long"
+        autoDecodingConfig: {},
+        languageCodes: [params.languageCode],
+        model: params.model,
+        features: {
+          enableAutomaticPunctuation: true
+        }
       },
-      audio: {
-        uri: params.gcsUri
+      files: [{ uri: params.gcsUri }],
+      recognitionOutputConfig: {
+        inlineResponseConfig: {}
       }
     })
   });
   if (!response.ok) {
-    throw new Error(`Speech longrunningrecognize failed: ${response.status} ${await response.text()}`);
+    throw new Error(`Speech batchRecognize failed: ${response.status} ${await response.text()}`);
   }
 
   const json = (await response.json()) as { name?: string };
@@ -188,11 +208,13 @@ export async function startSpeechLongRunningRecognize(params: {
   return json.name;
 }
 
-export async function getSpeechOperation(params: {
+export async function getSpeechBatchOperation(params: {
   accessToken: string;
+  location: string;
   operationName: string;
 }) {
-  const response = await fetch(`https://speech.googleapis.com/v1/operations/${params.operationName}`, {
+  const operationName = String(params.operationName ?? "").replace(/^\/+/, "");
+  const response = await fetch(`https://${encodeURIComponent(params.location)}-speech.googleapis.com/v2/${operationName}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${params.accessToken}`
@@ -205,18 +227,96 @@ export async function getSpeechOperation(params: {
     done?: boolean;
     error?: { message?: string };
     response?: {
-      results?: Array<{
-        alternatives?: Array<{ transcript?: string }>;
-      }>;
+      results?: Record<
+        string,
+        {
+          transcript?: {
+            results?: Array<{
+              alternatives?: Array<{ transcript?: string }>;
+            }>;
+          };
+          inlineResult?: {
+            transcript?: {
+              results?: Array<{
+                alternatives?: Array<{ transcript?: string }>;
+              }>;
+            };
+          };
+        }
+      >;
     };
   };
 }
 
-export function extractTranscriptFromSpeechResponse(response: {
-  results?: Array<{ alternatives?: Array<{ transcript?: string }> }>;
+export function extractTranscriptFromSpeechBatchResponse(params: {
+  response?: {
+    results?: Record<
+      string,
+      {
+        transcript?: {
+          results?: Array<{
+            alternatives?: Array<{ transcript?: string }>;
+          }>;
+        };
+        inlineResult?: {
+          transcript?: {
+            results?: Array<{
+              alternatives?: Array<{ transcript?: string }>;
+            }>;
+          };
+        };
+      }
+    >;
+  };
+  gcsUri?: string;
 }) {
-  const lines = (response.results ?? [])
-    .map((item) => item.alternatives?.[0]?.transcript?.trim() ?? "")
-    .filter((line) => line.length > 0);
-  return lines.join("\n").trim();
+  const response = params.response ?? {};
+  const files = response.results ?? {};
+  const target = findSpeechFileResult(files, params.gcsUri);
+  const transcriptResults = target?.transcript?.results ?? target?.inlineResult?.transcript?.results ?? [];
+
+  let emptyResultCount = 0;
+  const lines: string[] = [];
+  for (const row of transcriptResults) {
+    const transcript = row.alternatives?.[0]?.transcript?.trim() ?? "";
+    if (!transcript) {
+      emptyResultCount += 1;
+      continue;
+    }
+    lines.push(transcript);
+  }
+
+  return {
+    transcript: lines.join("\n").trim(),
+    totalResultCount: transcriptResults.length,
+    nonEmptyResultCount: lines.length,
+    emptyResultCount
+  };
+}
+
+function findSpeechFileResult(
+  files: Record<
+    string,
+    {
+      transcript?: {
+        results?: Array<{
+          alternatives?: Array<{ transcript?: string }>;
+        }>;
+      };
+      inlineResult?: {
+        transcript?: {
+          results?: Array<{
+            alternatives?: Array<{ transcript?: string }>;
+          }>;
+        };
+      };
+    }
+  >,
+  gcsUri?: string
+) {
+  if (gcsUri && files[gcsUri]) {
+    return files[gcsUri];
+  }
+  const firstKey = Object.keys(files)[0];
+  return firstKey ? files[firstKey] : undefined;
 }
