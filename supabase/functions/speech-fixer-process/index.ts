@@ -3,10 +3,11 @@ import { appEnv } from "../_shared/env.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import {
   deleteFromGcs,
-  extractTranscriptFromSpeechResponse,
+  extractTranscriptFromSpeechBatchResponse,
   getGoogleAccessToken,
-  getSpeechOperation,
-  startSpeechLongRunningRecognize
+  getGoogleProjectIdFromServiceAccountJson,
+  getSpeechBatchOperation,
+  startSpeechBatchRecognize
 } from "../_shared/google-cloud.ts";
 import { buildSpeechFixCorrections } from "../_shared/speech-fixer.ts";
 
@@ -38,6 +39,8 @@ type JobStats = {
 };
 
 const MAX_BATCH_DEFAULT = 3;
+const MIN_TRANSCRIPT_LENGTH_FOR_LARGE_FILE = 80;
+const LARGE_FILE_BYTES = 2_000_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -148,16 +151,23 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
       return false;
     }
 
+    const serviceAccountJson = appEnv.googleApplicationCredentialsJson();
     const googleAccessToken = await getGoogleAccessToken({
-      serviceAccountJson: appEnv.googleApplicationCredentialsJson(),
+      serviceAccountJson,
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     });
+    const projectId = getGoogleProjectIdFromServiceAccountJson(serviceAccountJson);
+    const sttLocation = appEnv.googleSpeechV2Location();
+    const sttModel = appEnv.googleSpeechModel();
 
     const gcsUri = `gs://${gcsBucket}/${gcsObjectName}`;
 
-    const operationName = await startSpeechLongRunningRecognize({
+    const operationName = await startSpeechBatchRecognize({
       accessToken: googleAccessToken,
+      projectId,
+      location: sttLocation,
       languageCode: "en-US",
+      model: sttModel,
       gcsUri
     });
 
@@ -173,6 +183,10 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
       gcsObjectName,
       gcsUri,
       sttOperationName: operationName,
+      sttApiVersion: "v2",
+      sttLocation,
+      sttModel,
+      sttProjectId: projectId,
       sttStartedAt
     };
 
@@ -204,12 +218,15 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
   }
 
   try {
+    const sttLocation = typeof stats.sttLocation === "string" ? stats.sttLocation : appEnv.googleSpeechV2Location();
+    const gcsUri = typeof stats.gcsUri === "string" ? stats.gcsUri : null;
     const accessToken = await getGoogleAccessToken({
       serviceAccountJson: appEnv.googleApplicationCredentialsJson(),
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     });
-    const operation = await getSpeechOperation({
+    const operation = await getSpeechBatchOperation({
       accessToken,
+      location: sttLocation,
       operationName
     });
 
@@ -218,16 +235,46 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
     }
 
     if (operation.error?.message) {
-      await failJob(serviceClient, job, `Speech-to-Text failed: ${operation.error.message}`);
+      const failedAt = new Date().toISOString();
+      await failJob(
+        serviceClient,
+        job,
+        `Speech-to-Text failed: ${operation.error.message}`,
+        {
+          ...stats,
+          sttCompletedAt: failedAt,
+          sttError: operation.error.message
+        }
+      );
       return "failed" as const;
     }
 
-    const transcript = extractTranscriptFromSpeechResponse(operation.response ?? {}).trim();
+    const transcriptResult = extractTranscriptFromSpeechBatchResponse({
+      response: operation.response ?? {},
+      gcsUri: gcsUri ?? undefined
+    });
+    const transcript = transcriptResult.transcript.trim();
     if (!transcript) {
-      await failJob(serviceClient, job, "Speech-to-Text returned empty transcript");
+      await failJob(serviceClient, job, "Speech-to-Text returned empty transcript", {
+        ...stats,
+        sttTranscriptLength: 0,
+        sttResultCount: transcriptResult.totalResultCount,
+        sttNonEmptyResultCount: transcriptResult.nonEmptyResultCount,
+        sttEmptyResultCount: transcriptResult.emptyResultCount
+      });
       return "failed" as const;
     }
 
+    if (isLowQualityTranscript(job, transcript, transcriptResult)) {
+      await failJob(serviceClient, job, "Speech-to-Text transcript appears low quality", {
+        ...stats,
+        sttTranscriptLength: transcript.length,
+        sttResultCount: transcriptResult.totalResultCount,
+        sttNonEmptyResultCount: transcriptResult.nonEmptyResultCount,
+        sttEmptyResultCount: transcriptResult.emptyResultCount
+      });
+      return "failed" as const;
+    }
     const correctionStartedAt = new Date().toISOString();
     const corrections = await buildSpeechFixCorrections(transcript);
     const correctionCompletedAt = new Date().toISOString();
@@ -237,6 +284,10 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
     const totalMs = diffMs(asIsoString(stats.queuedAt) ?? job.created_at, correctionCompletedAt);
     const nextStats = {
       ...stats,
+      sttTranscriptLength: transcript.length,
+      sttResultCount: transcriptResult.totalResultCount,
+      sttNonEmptyResultCount: transcriptResult.nonEmptyResultCount,
+      sttEmptyResultCount: transcriptResult.emptyResultCount,
       transcriptLength: transcript.length,
       correctionCount: corrections.length,
       sttCompletedAt,
@@ -270,21 +321,30 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
 
     return "completed" as const;
   } catch (error) {
-    await failJob(serviceClient, job, String(error));
+    await failJob(serviceClient, job, String(error), getStats(job));
     return "failed" as const;
   }
 }
 
-async function failJob(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow, reason: string) {
+async function failJob(
+  serviceClient: ReturnType<typeof createServiceClient>,
+  job: SpeechFixJobRow,
+  reason: string,
+  nextStats?: JobStats
+) {
   const message = reason.slice(0, 1800);
+  const updates: Record<string, unknown> = {
+    status: "failed",
+    error_message: message
+  };
+  if (nextStats) {
+    updates.stats_json = nextStats;
+  }
   await serviceClient
     .from("speech_fix_jobs")
-    .update({
-      status: "failed",
-      error_message: message
-    })
+    .update(updates)
     .eq("id", job.id);
-  await cleanupTempAudio(serviceClient, job);
+  await cleanupTempAudio(serviceClient, nextStats ? { ...job, stats_json: nextStats } : job);
 }
 
 async function cleanupTempAudio(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow) {
@@ -335,6 +395,25 @@ function diffMs(start: string | null, end: string | null): number | null {
   return Math.max(0, endMs - startMs);
 }
 
+function isLowQualityTranscript(
+  job: SpeechFixJobRow,
+  transcript: string,
+  sttResult: {
+    totalResultCount: number;
+    nonEmptyResultCount: number;
+  }
+) {
+  if (sttResult.nonEmptyResultCount <= 0) {
+    return true;
+  }
+  if (job.file_size >= LARGE_FILE_BYTES && transcript.length < MIN_TRANSCRIPT_LENGTH_FOR_LARGE_FILE) {
+    return true;
+  }
+  if (sttResult.totalResultCount >= 4 && sttResult.nonEmptyResultCount <= 1 && transcript.length < 120) {
+    return true;
+  }
+  return false;
+}
 function normalizeGcsField(value: unknown): string {
   return String(value ?? "")
     .replace(/\\n/g, "")

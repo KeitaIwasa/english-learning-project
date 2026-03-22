@@ -11,6 +11,7 @@ import {
 
 const MAX_TRY = 3;
 const MAX_TTS_TRY = 3;
+const MAX_TTS_SPEAKERS = 2;
 const HISTORY_LOOKBACK_DAYS = 5;
 const CONTEXT_MAX_CHARS = 32000;
 const MAX_USED_TARGETS = 20;
@@ -22,6 +23,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
+    const forceRegenerate = body?.force === true;
     const requestedUserId = body?.userId ? String(body.userId) : null;
     const authHeader = req.headers.get("Authorization") ?? "";
     const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
@@ -54,7 +56,7 @@ Deno.serve(async (req) => {
       .eq("generated_for_date", targetDate)
       .maybeSingle();
 
-    if (existing) {
+    if (existing && !forceRegenerate) {
       const hasAudio = Boolean(existing.audio_base64 && existing.audio_mime_type);
       return json({
         created: false,
@@ -127,6 +129,22 @@ Deno.serve(async (req) => {
       maxChars: CONTEXT_MAX_CHARS
     });
 
+    const speakerNames = [appEnv.geminiTtsSpeaker1Name(), appEnv.geminiTtsSpeaker2Name()]
+      .map((name) => String(name ?? "").trim())
+      .filter(Boolean)
+      .slice(0, MAX_TTS_SPEAKERS);
+
+    if (speakerNames.length !== MAX_TTS_SPEAKERS) {
+      throw new Error("Invalid speaker configuration");
+    }
+
+    const speakerVoiceConfigs = [
+      { speaker: speakerNames[0], voice: appEnv.geminiTtsSpeaker1Voice() },
+      { speaker: speakerNames[1], voice: appEnv.geminiTtsSpeaker2Voice() }
+    ];
+
+    const audioVoiceLabel = speakerVoiceConfigs.map((item) => `${item.speaker}:${item.voice}`).join(",");
+
     console.log(
       `[reading-generate-daily] pseudo-context userId=${userId} askCount=${pseudoConversation.stats.askCount} translatePairCount=${pseudoConversation.stats.translatePairCount} flashcardPairCount=${pseudoConversation.stats.flashcardPairCount} trimmedCount=${pseudoConversation.stats.trimmedCount} contextChars=${pseudoConversation.stats.contextChars}`
     );
@@ -140,7 +158,8 @@ Deno.serve(async (req) => {
     for (let attempt = 0; attempt < MAX_TRY; attempt += 1) {
       try {
         generated = await generateReading({
-          conversationContents
+          conversationContents,
+          speakerNames
         });
         break;
       } catch (error) {
@@ -149,23 +168,22 @@ Deno.serve(async (req) => {
     }
 
     if (!generated) {
-      generated = fallbackReading();
+      generated = fallbackReading(speakerNames);
     }
 
-    let ttsAudio: { audioBase64: string; mimeType: string; voice: string } | null = null;
+    let ttsAudio: { audioBase64: string; mimeType: string; voiceLabel: string } | null = null;
     for (let attempt = 0; attempt < MAX_TTS_TRY; attempt += 1) {
       try {
-        const voice = appEnv.geminiTtsVoice();
         const response = await synthesizeSpeechWithGemini({
           text: generated.passage,
           model: appEnv.geminiTtsModel(),
-          voice
+          speakerVoiceConfigs
         });
 
         ttsAudio = {
           audioBase64: response.audioBase64,
           mimeType: response.mimeType,
-          voice
+          voiceLabel: audioVoiceLabel
         };
         break;
       } catch (error) {
@@ -184,48 +202,78 @@ Deno.serve(async (req) => {
       contextChars: pseudoConversation.stats.contextChars
     };
 
-    const { data: inserted, error: insertError } = await serviceClient
-      .from("reading_passages")
-      .insert({
-        user_id: userId,
-        profile_id: null,
-        title: generated.title,
-        body_en: generated.passage,
-        glossary_ja_json: generated.glossary,
-        difficulty: "A2-B1",
-        generated_for_date: targetDate,
-        used_review_targets_json: usedReviewTargets,
-        used_new_targets_json: usedNewTargets,
-        audio_base64: ttsAudio?.audioBase64 ?? null,
-        audio_mime_type: ttsAudio?.mimeType ?? null,
-        audio_voice: ttsAudio?.voice ?? null,
-        rationale_json: rationale
-      })
-      .select("id")
-      .single();
+    let passageId: string;
+    if (existing) {
+      const { data: updated, error: updateError } = await serviceClient
+        .from("reading_passages")
+        .update({
+          profile_id: null,
+          title: generated.title,
+          body_en: generated.passage,
+          glossary_ja_json: generated.glossary,
+          difficulty: "A2-B1",
+          used_review_targets_json: usedReviewTargets,
+          used_new_targets_json: usedNewTargets,
+          audio_base64: ttsAudio?.audioBase64 ?? null,
+          audio_mime_type: ttsAudio?.mimeType ?? null,
+          audio_voice: ttsAudio?.voiceLabel ?? null,
+          rationale_json: rationale
+        })
+        .eq("id", existing.id)
+        .eq("user_id", userId)
+        .select("id")
+        .single();
 
-    if (insertError) {
-      if (insertError.code === "23505") {
-        const { data: duplicated } = await serviceClient
-          .from("reading_passages")
-          .select("id, used_review_targets_json, used_new_targets_json, audio_base64, audio_mime_type")
-          .eq("user_id", userId)
-          .eq("generated_for_date", targetDate)
-          .maybeSingle();
-        return json({
-          created: false,
-          passageId: duplicated?.id ?? null,
-          usedReviewTargets: (duplicated?.used_review_targets_json as string[] | null) ?? [],
-          usedNewTargets: (duplicated?.used_new_targets_json as string[] | null) ?? [],
-          hasAudio: Boolean(duplicated?.audio_base64 && duplicated?.audio_mime_type)
-        });
+      if (updateError) {
+        throw updateError;
       }
-      throw insertError;
+      passageId = updated.id;
+    } else {
+      const { data: inserted, error: insertError } = await serviceClient
+        .from("reading_passages")
+        .insert({
+          user_id: userId,
+          profile_id: null,
+          title: generated.title,
+          body_en: generated.passage,
+          glossary_ja_json: generated.glossary,
+          difficulty: "A2-B1",
+          generated_for_date: targetDate,
+          used_review_targets_json: usedReviewTargets,
+          used_new_targets_json: usedNewTargets,
+          audio_base64: ttsAudio?.audioBase64 ?? null,
+          audio_mime_type: ttsAudio?.mimeType ?? null,
+          audio_voice: ttsAudio?.voiceLabel ?? null,
+          rationale_json: rationale
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        if (insertError.code === "23505") {
+          const { data: duplicated } = await serviceClient
+            .from("reading_passages")
+            .select("id, used_review_targets_json, used_new_targets_json, audio_base64, audio_mime_type")
+            .eq("user_id", userId)
+            .eq("generated_for_date", targetDate)
+            .maybeSingle();
+          return json({
+            created: false,
+            passageId: duplicated?.id ?? null,
+            usedReviewTargets: (duplicated?.used_review_targets_json as string[] | null) ?? [],
+            usedNewTargets: (duplicated?.used_new_targets_json as string[] | null) ?? [],
+            hasAudio: Boolean(duplicated?.audio_base64 && duplicated?.audio_mime_type)
+          });
+        }
+        throw insertError;
+      }
+
+      passageId = inserted.id;
     }
 
     return json({
       created: true,
-      passageId: inserted.id,
+      passageId,
       usedReviewTargets,
       usedNewTargets,
       hasAudio: Boolean(ttsAudio)
@@ -247,12 +295,25 @@ type GeneratedReading = {
   };
 };
 
-async function generateReading(params: { conversationContents: GeminiContent[] }): Promise<GeneratedReading> {
+async function generateReading(params: {
+  conversationContents: GeminiContent[];
+  speakerNames: string[];
+}): Promise<GeneratedReading> {
+  const speakerNames = (params.speakerNames ?? [])
+    .map((name) => String(name ?? "").trim())
+    .filter(Boolean)
+    .slice(0, MAX_TTS_SPEAKERS);
+
+  if (speakerNames.length !== MAX_TTS_SPEAKERS) {
+    throw new Error("Invalid speaker names");
+  }
+
   const finalPrompt = [
     "以下の会話履歴を学習文脈として、英語学習者向けの音読トレーニング文章を作ってください。",
     "必須条件:",
-    "- 本文は180〜220語程度の自然な英文",
-    "- 音読しやすい構文と語彙難易度（A2-B1）",
+    "- 本文は英語の2人会話台本として180〜220語程度",
+    `- 使用できる話者名は「${speakerNames[0]}」と「${speakerNames[1]}」のみ`,
+    "- 各行を「話者名: セリフ」形式にし、地の文は禁止",
     "- 学習文脈に沿った語彙・言い回しを適度に再利用",
     "- 必ずJSONのみを返す",
     "- 出力スキーマ:",
@@ -280,9 +341,35 @@ async function generateReading(params: { conversationContents: GeminiContent[] }
     throw new Error("Invalid generated reading format");
   }
 
+  const speakerPrefixSet = new Set(speakerNames.map((speaker) => `${speaker}:`));
+  const scriptLines = String(parsed.passage ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const hasOnlyAllowedSpeakers =
+    scriptLines.length > 0 &&
+    scriptLines.every((line) => {
+      for (const prefix of speakerPrefixSet) {
+        if (line.startsWith(prefix)) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+  if (!hasOnlyAllowedSpeakers) {
+    throw new Error("Generated script is not in expected multi-speaker format");
+  }
+
+  const usedSpeakerSet = new Set(scriptLines.map((line) => line.split(":")[0]?.trim() ?? "").filter(Boolean));
+  if (!speakerNames.every((speaker) => usedSpeakerSet.has(speaker))) {
+    throw new Error("Generated script is missing one or more speakers");
+  }
+
   return {
     title: parsed.title,
-    passage: parsed.passage,
+    passage: scriptLines.join("\n"),
     glossary: Array.isArray(parsed.glossary) ? parsed.glossary : [],
     review_points: Array.isArray(parsed.review_points) ? parsed.review_points : [],
     used_targets: {
@@ -292,17 +379,26 @@ async function generateReading(params: { conversationContents: GeminiContent[] }
   };
 }
 
-function fallbackReading(): GeneratedReading {
-  const passage =
-    "Mika started her day with a short English routine before work. She opened her notebook and wrote three simple goals: review one old phrase, learn one new phrase, and speak for five minutes without stopping. First, she practiced a phrase she had learned before and tried to use it in two new sentences. Then she checked a new expression and compared it with a similar one to understand the difference in nuance. During lunch, she sent a short message in English to a friend and read the reply aloud. In the evening, she listened to a short dialogue and repeated each line slowly, paying attention to stress and rhythm. She noticed that clear pronunciation helped her remember the words better. Before bed, she recorded a one-minute summary of her day in English. The routine was simple, but it made her feel more confident and prepared for real conversations.";
+function fallbackReading(speakerNames: string[]): GeneratedReading {
+  const [speaker1, speaker2] = speakerNames;
+  const passage = [
+    `${speaker1}: Let's review what we practiced this week and keep our sentences short and clear.`,
+    `${speaker2}: Great. I will ask questions, and you answer naturally with one useful phrase each time.`,
+    `${speaker1}: Good idea. I also want to reuse familiar words so I can speak more smoothly.`,
+    `${speaker2}: Then add one new expression in each turn and connect it to a real daily situation.`,
+    `${speaker1}: I'll focus on pronunciation and rhythm while I read each line aloud twice.`,
+    `${speaker2}: Nice. Repetition plus context will help you remember and use the phrases faster.`,
+    `${speaker1}: After this, I will summarize our dialogue in one minute to check my fluency.`,
+    `${speaker2}: Perfect. This routine is simple, but it builds confidence for real conversations.`
+  ].join("\n");
 
   return {
-    title: "Daily English Routine",
+    title: "Daily Review Dialogue",
     passage,
     glossary: [
-      { en: "routine", ja: "習慣" },
-      { en: "stress", ja: "強勢" },
-      { en: "nuance", ja: "ニュアンス" }
+      { en: "repetition", ja: "反復" },
+      { en: "fluency", ja: "流暢さ" },
+      { en: "context", ja: "文脈" }
     ],
     review_points: [],
     used_targets: {

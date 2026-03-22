@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, CheckCircle2, CircleAlert, CloudUpload, LoaderCircle, Plus } from "lucide-react";
+import { AudioLines, CheckCircle2, ChevronDown, CircleAlert, CloudUpload, LoaderCircle, Plus } from "lucide-react";
 import { formatTranscriptForDisplay } from "@/lib/native-fixer-transcript";
 
 type JobStatus = "uploaded" | "queued" | "processing" | "completed" | "failed";
@@ -48,11 +48,15 @@ type ModalState = {
   reasonJa: string;
 };
 
+type ViewMode = "create" | "history";
+
 const ACCEPTED_AUDIO = "audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/aac,audio/mp4,audio/m4a";
 const MAX_FILE_SIZE_BYTES = 262_144_000;
 
 export function NativeFixerClient() {
   const [items, setItems] = useState<HistoryItem[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>("create");
+  const [isHistoryOpenOnMobile, setIsHistoryOpenOnMobile] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loadingList, setLoadingList] = useState(true);
@@ -219,6 +223,7 @@ export function NativeFixerClient() {
 
       await loadHistory(false);
       setSelectedId(createJson.jobId);
+      setViewMode("history");
       setBusyMessage("解析キューに追加しました。通常1-2分で完了します。");
     } catch (error) {
       setErrorMessage(String(error));
@@ -324,6 +329,13 @@ export function NativeFixerClient() {
     }
   };
 
+  const isMobileViewport = () => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia("(max-width: 960px)").matches;
+  };
+
   async function loadHistory(withLoading: boolean) {
     if (withLoading) {
       setLoadingList(true);
@@ -336,7 +348,7 @@ export function NativeFixerClient() {
       }
       const nextItems = Array.isArray(json.items) ? json.items : [];
       setItems(nextItems);
-      setSelectedId((prev) => prev ?? nextItems[0]?.id ?? null);
+      setSelectedId((prev) => (prev && nextItems.some((item) => item.id === prev) ? prev : null));
     } catch (error) {
       setErrorMessage(String(error));
     } finally {
@@ -369,153 +381,186 @@ export function NativeFixerClient() {
   return (
     <div className="nfx-page">
       <aside className="panel nfx-sidebar">
-        <h2 className="nfx-sidebar-title">解析履歴</h2>
-        {loadingList ? <p className="muted">読み込み中...</p> : null}
-        {!loadingList && items.length === 0 ? <p className="muted">まだ履歴がありません。</p> : null}
+        <div className="nfx-sidebar-heading">
+          <div className="nfx-sidebar-heading-left">
+            <h2 className="nfx-sidebar-title">解析履歴</h2>
+            <button
+              type="button"
+              className="secondary nfx-history-toggle"
+              aria-label="履歴パネルを開閉"
+              aria-expanded={isHistoryOpenOnMobile}
+              aria-controls="nfx-history-panel"
+              onClick={() => setIsHistoryOpenOnMobile((prev) => !prev)}
+            >
+              <ChevronDown size={16} />
+            </button>
+          </div>
+          {viewMode === "history" ? (
+            <button type="button" className="secondary nfx-new-upload-btn" onClick={() => setViewMode("create")}>
+              新規追加
+            </button>
+          ) : null}
+        </div>
+        <div id="nfx-history-panel" className={`nfx-sidebar-body${isHistoryOpenOnMobile ? " open" : ""}`}>
+          {loadingList ? <p className="muted">読み込み中...</p> : null}
+          {!loadingList && items.length === 0 ? <p className="muted">まだ履歴がありません。</p> : null}
 
-        <div className="nfx-history-list">
-          {items.map((item) => {
-            const active = item.id === selectedId;
-            const title = item.customTitle || item.fileName;
-            return (
-              <button
-                type="button"
-                key={item.id}
-                className={`nfx-history-item${active ? " active" : ""}`}
-                onClick={() => setSelectedId(item.id)}
-              >
-                <div className="nfx-history-item-top">
-                  {titleEditingId === item.id ? (
-                    <input
-                      value={titleDraft}
-                      autoFocus
-                      onChange={(event) => setTitleDraft(event.target.value)}
-                      onBlur={() => void submitTitle(item.id)}
-                      onKeyDown={(event) => onTitleKeyDown(event, item.id)}
-                    />
-                  ) : (
-                    <strong
-                      className="nfx-history-title"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openEditTitle(item);
-                      }}
-                    >
-                      {title}
-                    </strong>
-                  )}
-                  <StatusBadge status={item.status} />
-                </div>
-                <span className="nfx-history-date">{formatDateTime(item.completedAt || item.createdAt)}</span>
-              </button>
-            );
-          })}
+          <div className="nfx-history-list">
+            {items.map((item) => {
+              const active = item.id === selectedId;
+              const title = item.customTitle || item.fileName;
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={`nfx-history-item${active ? " active" : ""}`}
+                  onClick={() => {
+                    setSelectedId(item.id);
+                    setViewMode("history");
+                    if (isMobileViewport()) {
+                      setIsHistoryOpenOnMobile(false);
+                    }
+                  }}
+                >
+                  <div className="nfx-history-item-top">
+                    {titleEditingId === item.id ? (
+                      <input
+                        value={titleDraft}
+                        autoFocus
+                        onChange={(event) => setTitleDraft(event.target.value)}
+                        onBlur={() => void submitTitle(item.id)}
+                        onKeyDown={(event) => onTitleKeyDown(event, item.id)}
+                      />
+                    ) : (
+                      <strong
+                        className="nfx-history-title"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openEditTitle(item);
+                        }}
+                      >
+                        {title}
+                      </strong>
+                    )}
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <span className="nfx-history-date">{formatDateTime(item.completedAt || item.createdAt)}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </aside>
 
       <section className="nfx-main">
-        <section className="panel nfx-hero">
-          <div className="nfx-hero-icon">
-            <AudioLines size={24} />
-          </div>
-          <div>
-            <h1>Native English Fixer</h1>
-            <p>音声をアップロードして、文字起こしと自然な英語への添削をまとめて行います。</p>
-          </div>
-        </section>
+        {viewMode === "create" ? (
+          <section className="panel nfx-hero">
+            <div className="nfx-hero-icon">
+              <AudioLines size={24} />
+            </div>
+            <div>
+              <h1>Native English Fixer</h1>
+              <p>音声をアップロードして、文字起こしと自然な英語への添削をまとめて行います。</p>
+            </div>
+          </section>
+        ) : null}
 
-        <section className="panel nfx-upload">
-          <CloudUpload size={36} />
-          <h3>音声ファイルをアップロード</h3>
-          <p className="muted">MP3 / WAV / AAC / M4A（最大250MB）</p>
-          <label className="nfx-upload-button">
-            {uploading ? "アップロード中..." : "ファイルを選択"}
-            <input type="file" accept={ACCEPTED_AUDIO} onChange={onUploadFile} disabled={uploading} />
-          </label>
-          {busyMessage ? <p className="nfx-info">{busyMessage}</p> : null}
-          {errorMessage ? <p className="nfx-error">{errorMessage}</p> : null}
-        </section>
+        {viewMode === "create" ? (
+          <section className="panel nfx-upload">
+            <CloudUpload size={36} />
+            <h3>音声ファイルをアップロード</h3>
+            <p className="muted">MP3 / WAV / AAC / M4A（最大250MB）</p>
+            <label className="nfx-upload-button">
+              {uploading ? "アップロード中..." : "ファイルを選択"}
+              <input type="file" accept={ACCEPTED_AUDIO} onChange={onUploadFile} disabled={uploading} />
+            </label>
+            {busyMessage ? <p className="nfx-info">{busyMessage}</p> : null}
+            {errorMessage ? <p className="nfx-error">{errorMessage}</p> : null}
+          </section>
+        ) : null}
 
-        <section className="panel nfx-result">
-          {!selectedHistory ? <p className="muted">左の履歴から解析結果を選択してください。</p> : null}
+        {viewMode === "history" ? (
+          <section className="panel nfx-result">
+            {!selectedHistory ? <p className="muted">左の履歴から解析結果を選択してください。</p> : null}
 
-          {selectedHistory && loadingDetail ? (
-            <p className="muted">解析詳細を読み込み中...</p>
-          ) : null}
+            {selectedHistory && loadingDetail ? (
+              <p className="muted">解析詳細を読み込み中...</p>
+            ) : null}
 
-          {selectedHistory && detail ? (
-            <>
-              <div className="nfx-result-head">
-                <h3>{detail.customTitle || detail.fileName}</h3>
-                <StatusBadge status={detail.status} />
-              </div>
-
-              {detail.status === "failed" ? (
-                <div className="nfx-status-card error">
-                  <CircleAlert size={17} />
-                  <span>{detail.errorMessage || "解析に失敗しました。"}</span>
+            {selectedHistory && detail ? (
+              <>
+                <div className="nfx-result-head">
+                  <h3>{detail.customTitle || detail.fileName}</h3>
+                  <StatusBadge status={detail.status} />
                 </div>
-              ) : null}
 
-              {["uploaded", "queued", "processing"].includes(detail.status) ? (
-                <div className="nfx-status-card">
-                  <LoaderCircle size={17} className="spin" />
-                  <span>解析中です。通常1-2分で完了します。</span>
-                </div>
-              ) : null}
+                {detail.status === "failed" ? (
+                  <div className="nfx-status-card error">
+                    <CircleAlert size={17} />
+                    <span>{detail.errorMessage || "解析に失敗しました。"}</span>
+                  </div>
+                ) : null}
 
-              {detail.status === "completed" ? (
-                <div className="nfx-completed">
-                  <div className="nfx-transcript">
-                    <h4>文字起こし全文</h4>
-                    <div className="nfx-transcript-body">
-                      {detail.transcriptFull ? formatTranscriptForDisplay(detail.transcriptFull) : "(文字起こし結果なし)"}
+                {["uploaded", "queued", "processing"].includes(detail.status) ? (
+                  <div className="nfx-status-card">
+                    <LoaderCircle size={17} className="spin" />
+                    <span>解析中です。通常1-2分で完了します。</span>
+                  </div>
+                ) : null}
+
+                {detail.status === "completed" ? (
+                  <div className="nfx-completed">
+                    <div className="nfx-transcript">
+                      <h4>文字起こし全文</h4>
+                      <div className="nfx-transcript-body">
+                        {detail.transcriptFull ? formatTranscriptForDisplay(detail.transcriptFull) : "(文字起こし結果なし)"}
+                      </div>
+                    </div>
+
+                    <div className="nfx-corrections">
+                      <h4>修正リスト</h4>
+                      {detail.corrections.length === 0 ? <p className="muted">修正が必要な文は見つかりませんでした。</p> : null}
+                      {detail.corrections.map((correction, idx) => (
+                        <article key={`${correction.index}-${idx}`} className="nfx-correction-card">
+                          <div className="nfx-correction-grid">
+                            <div>
+                              <p className="nfx-label">元の英文</p>
+                              <p className="nfx-original">{correction.original}</p>
+                            </div>
+                            <div>
+                              <p className="nfx-label">日本語訳</p>
+                              <p className="nfx-ja">{correction.ja}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="nfx-label">修正後の英文</p>
+                            <p className="nfx-corrected">{correction.corrected}</p>
+                          </div>
+                          <div>
+                            <p className="nfx-label">理由</p>
+                            <p className="nfx-reason">{correction.reasonJa}</p>
+                          </div>
+                          {correction.addedFlashcardId ? (
+                            <span className="nfx-added-chip">
+                              <CheckCircle2 size={16} />
+                              追加済み
+                            </span>
+                          ) : (
+                            <button type="button" className="nfx-add-btn" onClick={() => openAddCardModal(idx)}>
+                              <Plus size={16} />
+                              フラッシュカード追加
+                            </button>
+                          )}
+                        </article>
+                      ))}
                     </div>
                   </div>
-
-                  <div className="nfx-corrections">
-                    <h4>修正リスト</h4>
-                    {detail.corrections.length === 0 ? <p className="muted">修正が必要な文は見つかりませんでした。</p> : null}
-                    {detail.corrections.map((correction, idx) => (
-                      <article key={`${correction.index}-${idx}`} className="nfx-correction-card">
-                        <div className="nfx-correction-grid">
-                          <div>
-                            <p className="nfx-label">元の英文</p>
-                            <p className="nfx-original">{correction.original}</p>
-                          </div>
-                          <div>
-                            <p className="nfx-label">日本語訳</p>
-                            <p className="nfx-ja">{correction.ja}</p>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="nfx-label">修正後の英文</p>
-                          <p className="nfx-corrected">{correction.corrected}</p>
-                        </div>
-                        <div>
-                          <p className="nfx-label">理由</p>
-                          <p className="nfx-reason">{correction.reasonJa}</p>
-                        </div>
-                        {correction.addedFlashcardId ? (
-                          <span className="nfx-added-chip">
-                            <CheckCircle2 size={16} />
-                            追加済み
-                          </span>
-                        ) : (
-                          <button type="button" className="nfx-add-btn" onClick={() => openAddCardModal(idx)}>
-                            <Plus size={16} />
-                            フラッシュカード追加
-                          </button>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </section>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        ) : null}
       </section>
 
       {modal ? (
@@ -576,7 +621,7 @@ export function NativeFixerClient() {
         </div>
       ) : null}
 
-      {draggingFile ? (
+      {draggingFile && viewMode === "create" ? (
         <div className="nfx-drop-overlay" aria-hidden="true">
           <div className="nfx-drop-overlay-card">
             <CloudUpload size={34} />

@@ -41,7 +41,7 @@ npm install
 3. Set Function secrets:
 
 ```bash
-npx supabase secrets set GEMINI_API_KEY=... GEMINI_FAST_MODEL=gemini-2.5-flash GEMINI_REASONING_MODEL=gemini-2.5-pro
+npx supabase secrets set GEMINI_API_KEY=... GEMINI_FAST_MODEL=gemini-2.5-flash GEMINI_REASONING_MODEL=gemini-2.5-pro GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts GEMINI_TTS_SPEAKER1_NAME=Zephyr GEMINI_TTS_SPEAKER1_VOICE=Kore GEMINI_TTS_SPEAKER2_NAME=Orus GEMINI_TTS_SPEAKER2_VOICE=Puck
 ```
 
 4. Deploy DB + Functions:

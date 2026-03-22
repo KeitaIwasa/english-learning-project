@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { getServiceEnv } from "@/lib/service";
+import {
+  createAdminSupabaseClient,
+  executeReadingGeneration,
+  getLatestJobForDate,
+  markTimedOutProcessingJobs,
+  resolveTargetDate
+} from "@/app/api/reading/_jobs";
 
-export async function POST() {
+export async function GET(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: auth } = await supabase.auth.getUser();
@@ -11,29 +17,96 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { supabaseUrl, serviceRoleKey } = getServiceEnv();
-    const response = await fetch(`${supabaseUrl}/functions/v1/reading-generate-daily`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey
-      },
-      body: JSON.stringify({
-        userId: auth.user.id
-      })
+    const targetDate = resolveTargetDate(new URL(request.url).searchParams.get("date"));
+    const adminClient = createAdminSupabaseClient();
+
+    await markTimedOutProcessingJobs({
+      adminClient,
+      userId: auth.user.id,
+      targetDate
     });
 
-    const text = await response.text();
-    const payload = text ? JSON.parse(text) : {};
-    if (!response.ok) {
+    const latest = await getLatestJobForDate({
+      adminClient,
+      userId: auth.user.id,
+      targetDate
+    });
+
+    if (!latest) {
+      return NextResponse.json({
+        jobId: null,
+        status: null,
+        triggerType: null,
+        error: null,
+        targetDate
+      });
+    }
+
+    return NextResponse.json({
+      jobId: latest.id,
+      status: latest.status,
+      triggerType: latest.trigger_type,
+      error: latest.error_message,
+      targetDate
+    });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+
+    if (!auth.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const targetDate = resolveTargetDate(body?.date);
+    const force = body?.force === true;
+    const profileId = typeof body?.profileId === "string" ? body.profileId : undefined;
+
+    const result = await executeReadingGeneration({
+      adminClient: createAdminSupabaseClient(),
+      userId: auth.user.id,
+      targetDate,
+      triggerType: "manual",
+      force,
+      profileId
+    });
+
+    if (!result.ok && result.conflict) {
       return NextResponse.json(
-        { error: payload?.error ?? `reading-generate-daily failed: ${response.status}` },
-        { status: response.status }
+        {
+          error: result.error,
+          jobId: result.job.id,
+          status: result.job.status,
+          targetDate
+        },
+        { status: 409 }
       );
     }
 
-    return NextResponse.json(payload);
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          error: result.error,
+          jobId: result.job.id,
+          status: result.job.status,
+          targetDate
+        },
+        { status: result.status }
+      );
+    }
+
+    return NextResponse.json({
+      ...(result.payload ?? {}),
+      jobId: result.job.id,
+      status: result.job.status,
+      targetDate
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

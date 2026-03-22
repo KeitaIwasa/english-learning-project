@@ -27,6 +27,20 @@ export type Database = {
           next_review_at: string;
         };
       };
+      reading_generation_jobs: {
+        Row: {
+          id: string;
+          user_id: string;
+          target_date: string;
+          trigger_type: "manual" | "cron";
+          status: "queued" | "processing" | "completed" | "failed";
+          error_message: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+      };
       reading_passages: {
         Row: {
           id: string;
