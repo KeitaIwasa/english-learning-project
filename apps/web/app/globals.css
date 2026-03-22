@@ -1064,6 +1064,7 @@ ul {
 }
 
 .nfx-sidebar {
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   display: grid;
@@ -1072,6 +1073,7 @@ ul {
 }
 
 .nfx-sidebar-body {
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -1121,6 +1123,7 @@ ul {
 }
 
 .nfx-history-list {
+  height: 100%;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
