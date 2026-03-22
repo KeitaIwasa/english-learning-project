@@ -37,7 +37,8 @@ export const learningProfileSchema = z.object({
 
 export const readingGenerateRequestSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  profileId: z.string().uuid().optional()
+  profileId: z.string().uuid().optional(),
+  force: z.boolean().optional()
 });
 
 export const speechFixJobStatusSchema = z.enum(["uploaded", "queued", "processing", "completed", "failed"]);

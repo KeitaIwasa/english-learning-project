@@ -9,7 +9,11 @@ export function ReadingGenerateButton() {
   const trigger = async () => {
     setLoading(true);
     setMessage("");
-    const res = await fetch("/api/reading/generate", { method: "POST" });
+    const res = await fetch("/api/reading/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: true })
+    });
     const data = (await res.json()) as { created: boolean; hasAudio?: boolean; error?: string };
     if (data.error) {
       setMessage(`失敗: ${data.error}`);

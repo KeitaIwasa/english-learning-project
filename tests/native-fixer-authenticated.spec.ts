@@ -18,13 +18,14 @@ test("authenticated user can toggle history dropdown on mobile", async ({ page }
   await page.goto("/native-fixer");
 
   const historyPanel = page.locator("#nfx-history-panel");
-  const toggleButton = page.getByRole("button", { name: "履歴を開く" });
+  const toggleButton = page.locator(".nfx-history-toggle");
 
   await expect(toggleButton).toBeVisible();
+  await expect(toggleButton).toHaveAttribute("aria-expanded", "false");
   await expect(historyPanel).not.toHaveClass(/open/);
 
   await toggleButton.click();
-  await expect(page.getByRole("button", { name: "履歴を閉じる" })).toBeVisible();
+  await expect(toggleButton).toHaveAttribute("aria-expanded", "true");
   await expect(historyPanel).toHaveClass(/open/);
 });
 

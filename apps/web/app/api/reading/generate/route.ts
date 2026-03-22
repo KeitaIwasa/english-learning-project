@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getServiceEnv } from "@/lib/service";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: auth } = await supabase.auth.getUser();
@@ -12,6 +12,11 @@ export async function POST() {
     }
 
     const { supabaseUrl, serviceRoleKey } = getServiceEnv();
+    const body = await request.json().catch(() => ({}));
+    const force = body?.force === true;
+    const date = typeof body?.date === "string" ? body.date : undefined;
+    const profileId = typeof body?.profileId === "string" ? body.profileId : undefined;
+
     const response = await fetch(`${supabaseUrl}/functions/v1/reading-generate-daily`, {
       method: "POST",
       headers: {
@@ -20,7 +25,10 @@ export async function POST() {
         apikey: serviceRoleKey
       },
       body: JSON.stringify({
-        userId: auth.user.id
+        userId: auth.user.id,
+        force,
+        date,
+        profileId
       })
     });
 

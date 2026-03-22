@@ -88,11 +88,23 @@ export async function generateWithGemini(params: GeminiRequest): Promise<GeminiG
 export async function synthesizeSpeechWithGemini(params: {
   text: string;
   model: string;
-  voice: string;
+  speakerVoiceConfigs: Array<{
+    speaker: string;
+    voice: string;
+  }>;
 }): Promise<GeminiTtsResult> {
   const input = String(params.text ?? "").trim();
   if (!input) {
     throw new Error("Gemini TTS input text is empty");
+  }
+  const speakerVoiceConfigs = (params.speakerVoiceConfigs ?? [])
+    .map((item) => ({
+      speaker: String(item?.speaker ?? "").trim(),
+      voice: String(item?.voice ?? "").trim()
+    }))
+    .filter((item) => item.speaker.length > 0 && item.voice.length > 0);
+  if (speakerVoiceConfigs.length === 0) {
+    throw new Error("Gemini TTS speakerVoiceConfigs is empty");
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:generateContent?key=${appEnv.geminiApiKey()}`;
@@ -111,10 +123,15 @@ export async function synthesizeSpeechWithGemini(params: {
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: params.voice
-            }
+          multiSpeakerVoiceConfig: {
+            speakerVoiceConfigs: speakerVoiceConfigs.map((item) => ({
+              speaker: item.speaker,
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: item.voice
+                }
+              }
+            }))
           }
         }
       }
