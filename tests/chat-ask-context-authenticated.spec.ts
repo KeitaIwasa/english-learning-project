@@ -5,14 +5,14 @@ test("ask sends prior thread id so history is included in context", async ({ pag
   const sentBodies: Array<Record<string, unknown>> = [];
   let firstMessage = "";
 
-  await page.route("**/api/chat", async (route) => {
+  await page.route("**/api/chat**", async (route) => {
     const request = route.request();
 
     if (request.method() === "GET") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ messages: [] })
+        body: JSON.stringify({ messages: [], hasMore: false, nextBefore: null })
       });
       return;
     }

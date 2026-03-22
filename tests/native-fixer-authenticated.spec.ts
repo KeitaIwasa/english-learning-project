@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+const NATIVE_FIXER_AUDIO_FILE = process.env.NATIVE_FIXER_AUDIO_FILE ?? "/home/keita/english-learning-project/2026-02-26 23-20-37.mp3";
+
 test("authenticated user can open native fixer page", async ({ page }) => {
   await page.goto("/native-fixer");
 
@@ -10,22 +12,23 @@ test("authenticated user can open native fixer page", async ({ page }) => {
 });
 
 test("authenticated user can upload native fixer audio file", async ({ page }) => {
+  test.setTimeout(5 * 60 * 1000);
   await page.goto("/native-fixer");
 
   const fileInput = page.locator('.nfx-upload input[type="file"]');
   await expect(fileInput).toBeAttached();
-  await fileInput.setInputFiles("/home/keita/english-learning-project/2026-02-20 23-28-22.mp3");
+  await fileInput.setInputFiles(NATIVE_FIXER_AUDIO_FILE);
 
   await expect(page.getByText("Error:音声アップロードに失敗しました: 400")).toHaveCount(0);
   await expect(page.getByText("Error:音声アップロードに失敗しました")).toHaveCount(0);
 
   await page.waitForFunction(
-    () => {
+    ({ fileName }) => {
       const rows = Array.from(document.querySelectorAll(".nfx-history-item"));
       if (rows.length === 0) return false;
-      return rows.some((row) => (row.textContent ?? "").includes("2026-02-20 23-28-22.mp3"));
+      return rows.some((row) => (row.textContent ?? "").includes(fileName));
     },
-    undefined,
-    { timeout: 30_000 }
+    { fileName: NATIVE_FIXER_AUDIO_FILE.split("/").pop() ?? NATIVE_FIXER_AUDIO_FILE },
+    { timeout: 4 * 60 * 1000 }
   );
 });

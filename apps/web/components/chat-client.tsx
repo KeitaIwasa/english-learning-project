@@ -28,6 +28,8 @@ type ChatHistoryMessage = {
 
 type ChatHistoryResponse = {
   messages?: ChatHistoryMessage[];
+  hasMore?: boolean;
+  nextBefore?: string | null;
   error?: string;
 };
 
@@ -59,6 +61,7 @@ const modeLabels: Record<ChatMode, string> = {
 };
 
 const streamableModes: ChatMode[] = ["ask", "translate"];
+const HISTORY_PAGE_SIZE = 10;
 
 export function ChatClient() {
   const [mode, setMode] = useState<ChatMode>("translate");
@@ -66,8 +69,12 @@ export function ChatClient() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [nextBeforeCursor, setNextBeforeCursor] = useState<string | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const keepScrollAnchorRef = useRef(false);
   const scrollToTimelineBottom = useCallback(() => {
     const el = timelineRef.current;
     if (!el) {
@@ -86,38 +93,49 @@ export function ChatClient() {
     return "英語の質問や添削してほしい文を入力";
   }, [mode]);
 
+  const mapHistoryToUiMessages = useCallback((historyMessages: ChatHistoryMessage[]) => {
+    return historyMessages
+      .filter((item): item is ChatHistoryMessage & { role: "user" | "assistant" } => {
+        return item.role === "user" || item.role === "assistant";
+      })
+      .map((item) => ({
+        id: item.id,
+        role: item.role,
+        text: item.content,
+        mode: item.mode
+      }));
+  }, []);
+
   useEffect(() => {
     let active = true;
 
     const loadHistory = async () => {
       try {
-        const res = await fetch("/api/chat", { method: "GET" });
+        const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
+        const res = await fetch(`/api/chat?${params.toString()}`, { method: "GET" });
         const json = (await res.json()) as ChatHistoryResponse;
         if (!active) {
           return;
         }
         if (!res.ok) {
           setMessages([]);
+          setHasMoreHistory(false);
+          setNextBeforeCursor(null);
           return;
         }
 
-        const history: UiMessage[] = (json.messages ?? [])
-          .filter((item): item is ChatHistoryMessage & { role: "user" | "assistant" } => {
-            return item.role === "user" || item.role === "assistant";
-          })
-          .map((item) => ({
-            id: item.id,
-            role: item.role,
-            text: item.content,
-            mode: item.mode
-          }));
+        const history = mapHistoryToUiMessages(json.messages ?? []);
 
         setMessages(history);
+        setHasMoreHistory(Boolean(json.hasMore));
+        setNextBeforeCursor(json.nextBefore ?? null);
         const lastThreadId = (json.messages ?? []).at(-1)?.thread_id ?? null;
         setChatId(lastThreadId);
       } catch {
         if (active) {
           setMessages([]);
+          setHasMoreHistory(false);
+          setNextBeforeCursor(null);
           setChatId(null);
         }
       } finally {
@@ -132,9 +150,55 @@ export function ChatClient() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [mapHistoryToUiMessages]);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (loadingMoreHistory || loadingHistory || !hasMoreHistory || !nextBeforeCursor) {
+      return;
+    }
+
+    const timeline = timelineRef.current;
+    const previousHeight = timeline?.scrollHeight ?? 0;
+    const previousTop = timeline?.scrollTop ?? 0;
+    setLoadingMoreHistory(true);
+
+    try {
+      const params = new URLSearchParams({
+        limit: String(HISTORY_PAGE_SIZE),
+        before: nextBeforeCursor
+      });
+      const res = await fetch(`/api/chat?${params.toString()}`, { method: "GET" });
+      const json = (await res.json()) as ChatHistoryResponse;
+
+      if (!res.ok) {
+        return;
+      }
+
+      const olderHistory = mapHistoryToUiMessages(json.messages ?? []);
+      keepScrollAnchorRef.current = true;
+      setMessages((prev) => [...olderHistory, ...prev]);
+      setHasMoreHistory(Boolean(json.hasMore));
+      setNextBeforeCursor(json.nextBefore ?? null);
+
+      requestAnimationFrame(() => {
+        const el = timelineRef.current;
+        if (!el) {
+          return;
+        }
+        const nextHeight = el.scrollHeight;
+        const offset = nextHeight - previousHeight;
+        el.scrollTo({ top: previousTop + offset, behavior: "auto" });
+      });
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }, [hasMoreHistory, loadingHistory, loadingMoreHistory, mapHistoryToUiMessages, nextBeforeCursor]);
 
   useEffect(() => {
+    if (keepScrollAnchorRef.current) {
+      keepScrollAnchorRef.current = false;
+      return;
+    }
     scrollToTimelineBottom();
   }, [messages, loading, loadingHistory, scrollToTimelineBottom]);
 
@@ -320,6 +384,20 @@ export function ChatClient() {
   return (
     <section className="panel chat-shell">
       <div ref={timelineRef} className="chat-timeline">
+        {!loadingHistory && hasMoreHistory ? (
+          <div className="chat-load-more-wrap">
+            <button
+              type="button"
+              className="chat-load-more-button"
+              onClick={() => {
+                void loadMoreHistory();
+              }}
+              disabled={loadingMoreHistory}
+            >
+              {loadingMoreHistory ? "読み込み中..." : "さらに読み込む"}
+            </button>
+          </div>
+        ) : null}
         {loadingHistory ? (
           <p className="muted">履歴を読み込み中...</p>
         ) : messages.length === 0 ? (
