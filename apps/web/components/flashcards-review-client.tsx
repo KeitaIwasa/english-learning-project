@@ -67,6 +67,7 @@ export function FlashcardsReviewClient() {
   const [initialTotal, setInitialTotal] = useState(0);
   const [nextDueAt, setNextDueAt] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(true);
+  const [queueLoadCompleted, setQueueLoadCompleted] = useState(false);
   const [queueError, setQueueError] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [reviewSaveError, setReviewSaveError] = useState<ReviewSaveError | null>(null);
@@ -76,7 +77,7 @@ export function FlashcardsReviewClient() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [recentCards, setRecentCards] = useState<RecentCardWithSm2[]>([]);
   const [recentTotal, setRecentTotal] = useState(0);
-  const [loadingRecent, setLoadingRecent] = useState(true);
+  const [loadingRecent, setLoadingRecent] = useState(false);
   const [recentError, setRecentError] = useState("");
   const [draftById, setDraftById] = useState<Record<string, { en: string; ja: string }>>({});
   const [savingById, setSavingById] = useState<Record<string, boolean>>({});
@@ -132,6 +133,7 @@ export function FlashcardsReviewClient() {
         setQueueError(`復習キューの取得に失敗しました: ${String(error)}`);
       } finally {
         if (active) {
+          setQueueLoadCompleted(true);
           setLoadingQueue(false);
         }
       }
@@ -157,6 +159,10 @@ export function FlashcardsReviewClient() {
   }, [searchQuery]);
 
   useEffect(() => {
+    if (!queueLoadCompleted) {
+      return;
+    }
+
     let active = true;
 
     const loadRecentCards = async () => {
@@ -209,7 +215,7 @@ export function FlashcardsReviewClient() {
     return () => {
       active = false;
     };
-  }, [debouncedQuery, refreshKey]);
+  }, [debouncedQuery, queueLoadCompleted, refreshKey]);
 
   const persistReview = async (attempt: ReviewAttempt) => {
     if (inFlightReviewIdsRef.current.has(attempt.flashcardId)) {
