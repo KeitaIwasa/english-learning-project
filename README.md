@@ -1,4 +1,4 @@
-# English Learning Platform MVP
+# English Learning Platform 
 
 Personal English learning platform with:
 - Next.js web app
