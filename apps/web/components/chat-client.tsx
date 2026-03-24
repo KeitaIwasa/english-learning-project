@@ -74,6 +74,8 @@ export function ChatClient() {
   const [nextBeforeCursor, setNextBeforeCursor] = useState<string | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusInputOnModeChangeRef = useRef(false);
   const keepScrollAnchorRef = useRef(false);
   const scrollToTimelineBottom = useCallback(() => {
     const el = timelineRef.current;
@@ -202,6 +204,19 @@ export function ChatClient() {
     }
     scrollToTimelineBottom();
   }, [messages, loading, loadingHistory, scrollToTimelineBottom]);
+
+  useEffect(() => {
+    if (!focusInputOnModeChangeRef.current) {
+      return;
+    }
+    const frameId = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      focusInputOnModeChangeRef.current = false;
+    });
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [mode]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -445,13 +460,17 @@ export function ChatClient() {
               key={item}
               type="button"
               className={item === mode ? "chat-mode active" : "chat-mode"}
-              onClick={() => setMode(item)}
+              onClick={() => {
+                focusInputOnModeChangeRef.current = true;
+                setMode(item);
+              }}
             >
               {modeLabels[item]}
             </button>
           ))}
         </div>
         <textarea
+          ref={inputRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {

@@ -1559,10 +1559,13 @@ ul {
 @media (max-width: 960px) {
   .nfx-page {
     display: block;
+    height: auto;
   }
 
   .nfx-sidebar {
     display: block;
+    height: auto;
+    overflow: visible;
     max-height: none;
   }
 
@@ -1575,12 +1578,16 @@ ul {
   }
 
   .nfx-sidebar-body.open {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(40svh, 320px);
     overflow: hidden;
   }
 
   .nfx-sidebar-body.open .nfx-history-list {
-    max-height: 150px;
+    height: auto;
+    max-height: none;
   }
 
   .nfx-main {
