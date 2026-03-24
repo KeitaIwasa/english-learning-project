@@ -27,7 +27,7 @@ export async function buildSpeechFixCorrections(params: {
   const speakerAwareInput = buildSpeakerAwareInput(text, transcriptTurns);
 
   const response = await generateWithGemini({
-    model: appEnv.geminiFastModel(),
+    model: appEnv.geminiReasoningModel(),
     instruction: [
       "あなたは英語添削の専門家です。",
       "入力された英語の文字起こし文から、不自然な文・文法が崩れている文・英語として不完全な文だけを抽出して修正してください。",

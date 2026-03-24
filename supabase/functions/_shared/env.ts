@@ -8,9 +8,9 @@ export function requireEnv(name: string): string {
 
 export const appEnv = {
   geminiApiKey: () => requireEnv("GEMINI_API_KEY"),
-  geminiFastModel: () => Deno.env.get("GEMINI_FAST_MODEL") ?? "gemini-2.5-flash",
-  geminiReasoningModel: () => Deno.env.get("GEMINI_REASONING_MODEL") ?? "gemini-2.5-pro",
-  geminiTtsModel: () => Deno.env.get("GEMINI_TTS_MODEL") ?? "gemini-2.5-flash-preview-tts",
+  geminiFastModel: () => Deno.env.get("GEMINI_FAST_MODEL") ?? "gemini-flash-latest",
+  geminiReasoningModel: () => Deno.env.get("GEMINI_REASONING_MODEL") ?? "gemini-pro-latest",
+  geminiTtsModel: () => Deno.env.get("GEMINI_TTS_MODEL") ?? "gemini-2.5-pro-preview-tts",
   geminiTtsVoice: () => Deno.env.get("GEMINI_TTS_VOICE") ?? "Kore",
   geminiTtsSpeaker1Name: () => Deno.env.get("GEMINI_TTS_SPEAKER1_NAME") ?? "Keita",
   geminiTtsSpeaker1Voice: () => Deno.env.get("GEMINI_TTS_SPEAKER1_VOICE") ?? "Alnilam",

@@ -41,7 +41,7 @@ npm install
 3. Set Function secrets:
 
 ```bash
-npx supabase secrets set GEMINI_API_KEY=... GEMINI_FAST_MODEL=gemini-2.5-flash GEMINI_REASONING_MODEL=gemini-2.5-pro GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts GEMINI_TTS_SPEAKER1_NAME=Zephyr GEMINI_TTS_SPEAKER1_VOICE=Kore GEMINI_TTS_SPEAKER2_NAME=Orus GEMINI_TTS_SPEAKER2_VOICE=Puck
+npx supabase secrets set GEMINI_API_KEY=... GEMINI_FAST_MODEL=gemini-flash-latest GEMINI_REASONING_MODEL=gemini-pro-latest GEMINI_TTS_MODEL=gemini-2.5-pro-preview-tts GEMINI_TTS_SPEAKER1_NAME=Zephyr GEMINI_TTS_SPEAKER1_VOICE=Kore GEMINI_TTS_SPEAKER2_NAME=Orus GEMINI_TTS_SPEAKER2_VOICE=Puck
 ```
 
 4. Deploy DB + Functions:
@@ -61,7 +61,9 @@ bash scripts/deploy_supabase.sh
 2. Deploy web:
 
 ```bash
-bash scripts/deploy_vercel.sh
+cd apps/web
+npx vercel link --yes --scope keitaiwasas-projects
+npx vercel --prod --yes --scope keitaiwasas-projects
 ```
 
 ### Vercel CLI scope note (important)
@@ -69,7 +71,7 @@ bash scripts/deploy_vercel.sh
 In non-interactive environments, Vercel may fail with:
 `missing_scope: Provide --scope or --team explicitly`.
 
-If that happens, run with explicit scope:
+To prevent this failure, always deploy with explicit `--scope` (do not rely on defaults):
 
 ```bash
 cd apps/web
@@ -78,6 +80,20 @@ npx vercel --prod --yes --scope <your-scope>
 ```
 
 Example for this project:
+
+```bash
+cd apps/web
+npx vercel link --yes --scope keitaiwasas-projects
+npx vercel --prod --yes --scope keitaiwasas-projects
+```
+
+### Deployment mistake log (2026-03-25)
+
+- Mistake:
+  - Ran production deploy without `--scope`, and deployment failed with `missing_scope`.
+- Prevention rule:
+  - Always run both `vercel link` and `vercel --prod` with `--scope keitaiwasas-projects` in this repo.
+- Quick recovery command:
 
 ```bash
 cd apps/web
