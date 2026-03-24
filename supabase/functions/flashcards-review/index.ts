@@ -97,12 +97,10 @@ Deno.serve(async (req) => {
         throw insertError;
       }
 
-      const queuePayload = await loadQueue(serviceClient, user.id);
       return json({
         ok: true,
         nextReviewAt: nextReviewAt.toISOString(),
-        remaining: queuePayload.total,
-        nextDueAt: queuePayload.nextDueAt
+        flashcardId
       });
     }
 

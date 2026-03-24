@@ -657,6 +657,28 @@ ul {
   margin: 0;
 }
 
+.fc-review-save-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fc-review-retry-btn {
+  border: 1px solid #ef4444;
+  background: #ffffff;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fc-review-retry-btn:hover {
+  background: #fee2e2;
+}
+
 .fc-empty {
   text-align: center;
   padding: 24px 0;

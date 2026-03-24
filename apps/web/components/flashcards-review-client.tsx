@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type QueueItem = {
   id: string;
@@ -20,9 +20,19 @@ type QueueResponse = {
 type ReviewResponse = {
   ok?: boolean;
   nextReviewAt?: string;
-  remaining?: number;
+  flashcardId?: string;
   nextDueAt?: string | null;
   error?: string;
+};
+
+type ReviewAttempt = {
+  flashcardId: string;
+  remembered: boolean;
+};
+
+type ReviewSaveError = {
+  message: string;
+  attempt: ReviewAttempt;
 };
 
 type Sm2Info = {
@@ -59,7 +69,8 @@ export function FlashcardsReviewClient() {
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [queueError, setQueueError] = useState("");
   const [revealed, setRevealed] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [reviewSaveError, setReviewSaveError] = useState<ReviewSaveError | null>(null);
+  const inFlightReviewIdsRef = useRef(new Set<string>());
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -200,37 +211,64 @@ export function FlashcardsReviewClient() {
     };
   }, [debouncedQuery, refreshKey]);
 
-  const submitReview = async (remembered: boolean) => {
-    if (!current || submitting) {
+  const persistReview = async (attempt: ReviewAttempt) => {
+    if (inFlightReviewIdsRef.current.has(attempt.flashcardId)) {
       return;
     }
 
-    setSubmitting(true);
-    setQueueError("");
+    inFlightReviewIdsRef.current.add(attempt.flashcardId);
 
     try {
       const res = await fetch("/api/flashcards/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          flashcardId: current.id,
-          remembered
+          flashcardId: attempt.flashcardId,
+          remembered: attempt.remembered
         })
       });
       const json = (await res.json()) as ReviewResponse;
 
       if (!res.ok || !json.ok) {
-        setQueueError(typeof json.error === "string" ? json.error : "復習結果の保存に失敗しました。");
+        setReviewSaveError({
+          message: typeof json.error === "string" ? json.error : "復習結果の保存に失敗しました。",
+          attempt
+        });
         return;
       }
-
-      setQueue((prev) => prev.slice(1));
       setNextDueAt(typeof json.nextDueAt === "string" ? json.nextDueAt : null);
     } catch (error) {
-      setQueueError(`復習結果の保存に失敗しました: ${String(error)}`);
+      setReviewSaveError({
+        message: `復習結果の保存に失敗しました: ${String(error)}`,
+        attempt
+      });
     } finally {
-      setSubmitting(false);
+      inFlightReviewIdsRef.current.delete(attempt.flashcardId);
     }
+  };
+
+  const submitReview = (remembered: boolean) => {
+    if (!current) {
+      return;
+    }
+
+    const attempt: ReviewAttempt = { flashcardId: current.id, remembered };
+    if (inFlightReviewIdsRef.current.has(attempt.flashcardId)) {
+      return;
+    }
+
+    setQueueError("");
+    setReviewSaveError(null);
+    setQueue((prev) => prev.slice(1));
+    void persistReview(attempt);
+  };
+
+  const retrySaveReview = () => {
+    if (!reviewSaveError) {
+      return;
+    }
+    setReviewSaveError(null);
+    void persistReview(reviewSaveError.attempt);
   };
 
   const hasCompleted = !loadingQueue && !queueError && queue.length === 0;
@@ -360,6 +398,14 @@ export function FlashcardsReviewClient() {
         ) : null}
 
         {queueError ? <p className="fc-error">{queueError}</p> : null}
+        {reviewSaveError ? (
+          <div className="fc-error fc-review-save-error" role="alert">
+            <span>{reviewSaveError.message}</span>
+            <button type="button" className="fc-review-retry-btn" onClick={retrySaveReview}>
+              再送
+            </button>
+          </div>
+        ) : null}
 
         {!loadingQueue && !queueError && current ? (
           <div className="fc-review">
@@ -398,8 +444,7 @@ export function FlashcardsReviewClient() {
                       <button
                         type="button"
                         className="fc-btn-remembered"
-                        onClick={() => void submitReview(true)}
-                        disabled={submitting}
+                        onClick={() => submitReview(true)}
                       >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12" />
@@ -409,8 +454,7 @@ export function FlashcardsReviewClient() {
                       <button
                         type="button"
                         className="fc-btn-forgot"
-                        onClick={() => void submitReview(false)}
-                        disabled={submitting}
+                        onClick={() => submitReview(false)}
                       >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18" />
