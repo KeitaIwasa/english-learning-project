@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTranscriptForDisplay } from "./native-fixer-transcript";
+import { formatTranscriptForDisplay, getTranscriptSpeakerLabel } from "./native-fixer-transcript";
 
 describe("formatTranscriptForDisplay", () => {
   it("merges fragmented short lines into one paragraph", () => {
@@ -18,5 +18,11 @@ describe("formatTranscriptForDisplay", () => {
     const input = "I had a productive morning.\nI reviewed our plan and sent updates to the team.";
 
     expect(formatTranscriptForDisplay(input)).toBe(input);
+  });
+
+  it("returns speaker labels for transcript turns", () => {
+    expect(getTranscriptSpeakerLabel(1)).toBe("Speaker 1");
+    expect(getTranscriptSpeakerLabel(2)).toBe("Speaker 2");
+    expect(getTranscriptSpeakerLabel("unknown")).toBe("不明話者");
   });
 });

@@ -15,6 +15,7 @@ const MAX_TTS_SPEAKERS = 2;
 const HISTORY_LOOKBACK_DAYS = 5;
 const CONTEXT_MAX_CHARS = 32000;
 const MAX_USED_TARGETS = 20;
+const READING_SPEAKER_NAMES = ["Keita", "May"] as const;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -129,10 +130,7 @@ Deno.serve(async (req) => {
       maxChars: CONTEXT_MAX_CHARS
     });
 
-    const speakerNames = [appEnv.geminiTtsSpeaker1Name(), appEnv.geminiTtsSpeaker2Name()]
-      .map((name) => String(name ?? "").trim())
-      .filter(Boolean)
-      .slice(0, MAX_TTS_SPEAKERS);
+    const speakerNames = [...READING_SPEAKER_NAMES];
 
     if (speakerNames.length !== MAX_TTS_SPEAKERS) {
       throw new Error("Invalid speaker configuration");

@@ -276,7 +276,10 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
       return "failed" as const;
     }
     const correctionStartedAt = new Date().toISOString();
-    const corrections = await buildSpeechFixCorrections(transcript);
+    const corrections = await buildSpeechFixCorrections({
+      transcript,
+      transcriptTurns: transcriptResult.turns
+    });
     const correctionCompletedAt = new Date().toISOString();
     const sttCompletedAt = correctionStartedAt;
     const sttMs = diffMs(asIsoString(stats.sttStartedAt), sttCompletedAt);
@@ -288,6 +291,8 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
       sttResultCount: transcriptResult.totalResultCount,
       sttNonEmptyResultCount: transcriptResult.nonEmptyResultCount,
       sttEmptyResultCount: transcriptResult.emptyResultCount,
+      sttDetectedSpeakerCount: transcriptResult.detectedSpeakerCount,
+      transcriptTurns: transcriptResult.turns,
       transcriptLength: transcript.length,
       correctionCount: corrections.length,
       sttCompletedAt,

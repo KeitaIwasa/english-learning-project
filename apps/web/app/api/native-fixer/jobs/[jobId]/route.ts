@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { speechFixJobTitleUpdateSchema } from "@/lib/schemas";
-import { normalizeCorrections, requireAuthUser } from "../../_utils";
+import type { Json } from "@/types/supabase";
+import { normalizeCorrections, normalizeTranscriptTurns, requireAuthUser } from "../../_utils";
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -26,6 +27,7 @@ export async function GET(_request: Request, context: RouteContext) {
   if (!data) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  const stats = (data.stats_json ?? {}) as { transcriptTurns?: Json };
 
   return NextResponse.json({
     item: {
@@ -36,6 +38,7 @@ export async function GET(_request: Request, context: RouteContext) {
       mimeType: data.mime_type,
       status: data.status,
       transcriptFull: data.transcript_full,
+      transcriptTurns: normalizeTranscriptTurns(stats.transcriptTurns ?? []),
       corrections: normalizeCorrections(data.corrections_json),
       errorMessage: data.error_message,
       stats: data.stats_json,

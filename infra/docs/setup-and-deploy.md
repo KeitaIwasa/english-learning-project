@@ -64,6 +64,27 @@ bash scripts/deploy_supabase.sh
 bash scripts/deploy_vercel.sh
 ```
 
+### Vercel CLI scope note (important)
+
+In non-interactive environments, Vercel may fail with:
+`missing_scope: Provide --scope or --team explicitly`.
+
+If that happens, run with explicit scope:
+
+```bash
+cd apps/web
+npx vercel link --yes --scope <your-scope>
+npx vercel --prod --yes --scope <your-scope>
+```
+
+Example for this project:
+
+```bash
+cd apps/web
+npx vercel link --yes --scope keitaiwasas-projects
+npx vercel --prod --yes --scope keitaiwasas-projects
+```
+
 ## 5. Daily job setup (Supabase SQL Editor)
 
 Run SQL with your actual project URL and service role key in headers.

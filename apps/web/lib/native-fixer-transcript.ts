@@ -1,3 +1,10 @@
+export type TranscriptSpeaker = 1 | 2 | "unknown";
+
+export type TranscriptTurn = {
+  speaker: TranscriptSpeaker;
+  text: string;
+};
+
 export function formatTranscriptForDisplay(input: string): string {
   const text = String(input ?? "");
   if (!text.trim()) {
@@ -45,6 +52,16 @@ export function formatTranscriptForDisplay(input: string): string {
   pushCurrent();
 
   return paragraphs.join("\n\n").trim();
+}
+
+export function getTranscriptSpeakerLabel(speaker: TranscriptSpeaker): string {
+  if (speaker === 1) {
+    return "Speaker 1";
+  }
+  if (speaker === 2) {
+    return "Speaker 2";
+  }
+  return "不明話者";
 }
 
 function normalizeSpacing(text: string): string {

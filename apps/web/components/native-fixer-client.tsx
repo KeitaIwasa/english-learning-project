@@ -2,7 +2,12 @@
 
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, CheckCircle2, ChevronDown, CircleAlert, CloudUpload, LoaderCircle, Plus } from "lucide-react";
-import { formatTranscriptForDisplay } from "@/lib/native-fixer-transcript";
+import {
+  formatTranscriptForDisplay,
+  getTranscriptSpeakerLabel,
+  type TranscriptSpeaker,
+  type TranscriptTurn
+} from "@/lib/native-fixer-transcript";
 
 type JobStatus = "uploaded" | "queued" | "processing" | "completed" | "failed";
 
@@ -22,6 +27,7 @@ type Correction = {
   corrected: string;
   ja: string;
   reasonJa: string;
+  speaker: TranscriptSpeaker;
   addedFlashcardId: string | null;
 };
 
@@ -33,6 +39,7 @@ type JobDetail = {
   mimeType: string;
   status: JobStatus;
   transcriptFull: string | null;
+  transcriptTurns: TranscriptTurn[];
   corrections: Correction[];
   errorMessage: string | null;
   createdAt: string;
@@ -49,6 +56,7 @@ type ModalState = {
 };
 
 type ViewMode = "create" | "history";
+type CorrectionSpeakerFilter = "all" | "speaker1" | "speaker2";
 
 const ACCEPTED_AUDIO = "audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/aac,audio/mp4,audio/m4a";
 const MAX_FILE_SIZE_BYTES = 262_144_000;
@@ -69,9 +77,27 @@ export function NativeFixerClient() {
   const [modal, setModal] = useState<ModalState | null>(null);
   const [addingCard, setAddingCard] = useState(false);
   const [draggingFile, setDraggingFile] = useState(false);
+  const [speakerFilter, setSpeakerFilter] = useState<CorrectionSpeakerFilter>("all");
   const dragDepthRef = useRef(0);
 
   const selectedHistory = useMemo(() => items.find((item) => item.id === selectedId) ?? null, [items, selectedId]);
+  const visibleCorrections = useMemo(() => {
+    const corrections = detail?.corrections ?? [];
+    return corrections
+      .map((correction, originalIndex) => ({ correction, originalIndex }))
+      .filter(({ correction }) => {
+        if (speakerFilter === "all") {
+          return true;
+        }
+        if (correction.speaker === "unknown") {
+          return true;
+        }
+        if (speakerFilter === "speaker1") {
+          return correction.speaker === 1;
+        }
+        return correction.speaker === 2;
+      });
+  }, [detail?.corrections, speakerFilter]);
 
   useEffect(() => {
     void loadHistory(true);
@@ -85,6 +111,7 @@ export function NativeFixerClient() {
     if (!selectedId) {
       return;
     }
+    setSpeakerFilter("all");
     void loadDetail(selectedId, true);
   }, [selectedId]);
 
@@ -514,15 +541,61 @@ export function NativeFixerClient() {
                     <div className="nfx-transcript">
                       <h4>文字起こし全文</h4>
                       <div className="nfx-transcript-body">
-                        {detail.transcriptFull ? formatTranscriptForDisplay(detail.transcriptFull) : "(文字起こし結果なし)"}
+                        {detail.transcriptTurns.length > 0 ? (
+                          <div className="nfx-transcript-turns">
+                            {detail.transcriptTurns.map((turn, idx) => (
+                              <article key={`${detail.id}-turn-${idx}`} className={`nfx-turn-card speaker-${turn.speaker}`}>
+                                <p className="nfx-turn-speaker">{getTranscriptSpeakerLabel(turn.speaker)}</p>
+                                <p className="nfx-turn-text">{turn.text}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : detail.transcriptFull ? (
+                          formatTranscriptForDisplay(detail.transcriptFull)
+                        ) : (
+                          "(文字起こし結果なし)"
+                        )}
                       </div>
                     </div>
 
                     <div className="nfx-corrections">
                       <h4>修正リスト</h4>
+                      {detail.corrections.length > 0 ? (
+                        <div className="nfx-filter-row" role="group" aria-label="話者フィルタ">
+                          <button
+                            type="button"
+                            className={`secondary nfx-filter-btn${speakerFilter === "all" ? " active" : ""}`}
+                            onClick={() => setSpeakerFilter("all")}
+                          >
+                            全員
+                          </button>
+                          <button
+                            type="button"
+                            className={`secondary nfx-filter-btn${speakerFilter === "speaker1" ? " active" : ""}`}
+                            onClick={() => setSpeakerFilter("speaker1")}
+                          >
+                            Speaker 1
+                          </button>
+                          <button
+                            type="button"
+                            className={`secondary nfx-filter-btn${speakerFilter === "speaker2" ? " active" : ""}`}
+                            onClick={() => setSpeakerFilter("speaker2")}
+                          >
+                            Speaker 2
+                          </button>
+                        </div>
+                      ) : null}
                       {detail.corrections.length === 0 ? <p className="muted">修正が必要な文は見つかりませんでした。</p> : null}
-                      {detail.corrections.map((correction, idx) => (
-                        <article key={`${correction.index}-${idx}`} className="nfx-correction-card">
+                      {detail.corrections.length > 0 && visibleCorrections.length === 0 ? (
+                        <p className="muted">この条件に一致する修正はありません。</p>
+                      ) : null}
+                      {visibleCorrections.map(({ correction, originalIndex }) => (
+                        <article key={`${correction.index}-${originalIndex}`} className="nfx-correction-card">
+                          <div className="nfx-correction-head">
+                            <span className={`nfx-speaker-chip speaker-${correction.speaker}`}>
+                              {getTranscriptSpeakerLabel(correction.speaker)}
+                            </span>
+                          </div>
                           <div className="nfx-correction-grid">
                             <div>
                               <p className="nfx-label">元の英文</p>
@@ -547,7 +620,7 @@ export function NativeFixerClient() {
                               追加済み
                             </span>
                           ) : (
-                            <button type="button" className="nfx-add-btn" onClick={() => openAddCardModal(idx)}>
+                            <button type="button" className="nfx-add-btn" onClick={() => openAddCardModal(originalIndex)}>
                               <Plus size={16} />
                               フラッシュカード追加
                             </button>

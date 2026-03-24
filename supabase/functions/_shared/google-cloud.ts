@@ -188,7 +188,8 @@ export async function startSpeechBatchRecognize(params: {
         languageCodes: [params.languageCode],
         model: params.model,
         features: {
-          enableAutomaticPunctuation: true
+          enableAutomaticPunctuation: true,
+          diarizationConfig: {}
         }
       },
       files: [{ uri: params.gcsUri }],
@@ -232,13 +233,29 @@ export async function getSpeechBatchOperation(params: {
         {
           transcript?: {
             results?: Array<{
-              alternatives?: Array<{ transcript?: string }>;
+              alternatives?: Array<{
+                transcript?: string;
+                words?: Array<{
+                  word?: string;
+                  text?: string;
+                  speakerLabel?: string | number;
+                  speakerTag?: string | number;
+                }>;
+              }>;
             }>;
           };
           inlineResult?: {
             transcript?: {
               results?: Array<{
-                alternatives?: Array<{ transcript?: string }>;
+                alternatives?: Array<{
+                  transcript?: string;
+                  words?: Array<{
+                    word?: string;
+                    text?: string;
+                    speakerLabel?: string | number;
+                    speakerTag?: string | number;
+                  }>;
+                }>;
               }>;
             };
           };
@@ -248,6 +265,12 @@ export async function getSpeechBatchOperation(params: {
   };
 }
 
+export type SpeechDiarizedSpeaker = 1 | 2 | "unknown";
+export type SpeechDiarizedTurn = {
+  speaker: SpeechDiarizedSpeaker;
+  text: string;
+};
+
 export function extractTranscriptFromSpeechBatchResponse(params: {
   response?: {
     results?: Record<
@@ -255,13 +278,29 @@ export function extractTranscriptFromSpeechBatchResponse(params: {
       {
         transcript?: {
           results?: Array<{
-            alternatives?: Array<{ transcript?: string }>;
+            alternatives?: Array<{
+              transcript?: string;
+              words?: Array<{
+                word?: string;
+                text?: string;
+                speakerLabel?: string | number;
+                speakerTag?: string | number;
+              }>;
+            }>;
           }>;
         };
         inlineResult?: {
           transcript?: {
             results?: Array<{
-              alternatives?: Array<{ transcript?: string }>;
+              alternatives?: Array<{
+                transcript?: string;
+                words?: Array<{
+                  word?: string;
+                  text?: string;
+                  speakerLabel?: string | number;
+                  speakerTag?: string | number;
+                }>;
+              }>;
             }>;
           };
         };
@@ -277,20 +316,37 @@ export function extractTranscriptFromSpeechBatchResponse(params: {
 
   let emptyResultCount = 0;
   const lines: string[] = [];
+  const turns: SpeechDiarizedTurn[] = [];
   for (const row of transcriptResults) {
-    const transcript = row.alternatives?.[0]?.transcript?.trim() ?? "";
+    const firstAlt = row.alternatives?.[0];
+    const transcript = firstAlt?.transcript?.trim() ?? "";
     if (!transcript) {
       emptyResultCount += 1;
       continue;
     }
     lines.push(transcript);
+    const rowTurns = buildTurnsFromWords(firstAlt);
+    if (rowTurns.length > 0) {
+      for (const turn of rowTurns) {
+        pushTurn(turns, turn);
+      }
+      continue;
+    }
+    pushTurn(turns, { speaker: "unknown", text: transcript });
+  }
+
+  const detectedSpeakerSet = new Set<SpeechDiarizedSpeaker>();
+  for (const turn of turns) {
+    detectedSpeakerSet.add(turn.speaker);
   }
 
   return {
     transcript: lines.join("\n").trim(),
     totalResultCount: transcriptResults.length,
     nonEmptyResultCount: lines.length,
-    emptyResultCount
+    emptyResultCount,
+    turns,
+    detectedSpeakerCount: detectedSpeakerSet.size
   };
 }
 
@@ -300,13 +356,29 @@ function findSpeechFileResult(
     {
       transcript?: {
         results?: Array<{
-          alternatives?: Array<{ transcript?: string }>;
+          alternatives?: Array<{
+            transcript?: string;
+            words?: Array<{
+              word?: string;
+              text?: string;
+              speakerLabel?: string | number;
+              speakerTag?: string | number;
+            }>;
+          }>;
         }>;
       };
       inlineResult?: {
         transcript?: {
           results?: Array<{
-            alternatives?: Array<{ transcript?: string }>;
+            alternatives?: Array<{
+              transcript?: string;
+              words?: Array<{
+                word?: string;
+                text?: string;
+                speakerLabel?: string | number;
+                speakerTag?: string | number;
+              }>;
+            }>;
           }>;
         };
       };
@@ -319,4 +391,92 @@ function findSpeechFileResult(
   }
   const firstKey = Object.keys(files)[0];
   return firstKey ? files[firstKey] : undefined;
+}
+
+function buildTurnsFromWords(alternative: {
+  words?: Array<{
+    word?: string;
+    text?: string;
+    speakerLabel?: string | number;
+    speakerTag?: string | number;
+  }>;
+} | null | undefined): SpeechDiarizedTurn[] {
+  const words = Array.isArray(alternative?.words) ? alternative.words : [];
+  if (words.length === 0) {
+    return [];
+  }
+
+  const turns: SpeechDiarizedTurn[] = [];
+  let currentSpeaker: SpeechDiarizedSpeaker | null = null;
+  let currentText = "";
+
+  const flush = () => {
+    const text = currentText.trim();
+    if (!text || !currentSpeaker) {
+      return;
+    }
+    pushTurn(turns, { speaker: currentSpeaker, text });
+    currentText = "";
+  };
+
+  for (const row of words) {
+    const token = String(row?.word ?? row?.text ?? "").trim();
+    if (!token) {
+      continue;
+    }
+    const speaker = normalizeSpeakerId(row?.speakerLabel ?? row?.speakerTag);
+    if (currentSpeaker === null) {
+      currentSpeaker = speaker;
+    } else if (speaker !== currentSpeaker) {
+      flush();
+      currentSpeaker = speaker;
+    }
+    currentText = appendToken(currentText, token);
+  }
+  flush();
+  return turns;
+}
+
+function normalizeSpeakerId(value: unknown): SpeechDiarizedSpeaker {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "unknown";
+  }
+  const num = Number(text);
+  if (!Number.isFinite(num)) {
+    return "unknown";
+  }
+  if (num === 1) {
+    return 1;
+  }
+  if (num === 2) {
+    return 2;
+  }
+  return "unknown";
+}
+
+function pushTurn(turns: SpeechDiarizedTurn[], turn: SpeechDiarizedTurn) {
+  const text = String(turn.text ?? "").trim();
+  if (!text) {
+    return;
+  }
+  const last = turns[turns.length - 1];
+  if (last && last.speaker === turn.speaker) {
+    last.text = `${last.text} ${text}`.replace(/\s+/g, " ").trim();
+    return;
+  }
+  turns.push({ speaker: turn.speaker, text });
+}
+
+function appendToken(current: string, token: string) {
+  if (!current) {
+    return token;
+  }
+  if (/^[,.;:!?)]/.test(token)) {
+    return `${current}${token}`;
+  }
+  if (/^['’]/.test(token)) {
+    return `${current}${token}`;
+  }
+  return `${current} ${token}`;
 }

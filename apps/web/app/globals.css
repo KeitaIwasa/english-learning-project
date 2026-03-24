@@ -1345,9 +1345,63 @@ ul {
   line-height: 1.55;
 }
 
+.nfx-transcript-turns {
+  display: grid;
+  gap: 10px;
+}
+
+.nfx-turn-card {
+  border: 1px solid #d8e2f3;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+}
+
+.nfx-turn-card.speaker-1 {
+  border-left: 4px solid #4f6ef7;
+}
+
+.nfx-turn-card.speaker-2 {
+  border-left: 4px solid #00a087;
+}
+
+.nfx-turn-card.speaker-unknown {
+  border-left: 4px solid #8a94a6;
+}
+
+.nfx-turn-speaker {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4f5f78;
+}
+
+.nfx-turn-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .nfx-corrections {
   display: grid;
   gap: 10px;
+}
+
+.nfx-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.nfx-filter-btn {
+  font-size: 13px;
+  border: 1px solid #cad7ef;
+}
+
+.nfx-filter-btn.active {
+  background: #1f5eff;
+  border-color: #1f5eff;
+  color: #fff;
 }
 
 .nfx-correction-card {
@@ -1357,6 +1411,35 @@ ul {
   display: grid;
   gap: 10px;
   background: #fff;
+}
+
+.nfx-correction-head {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nfx-speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nfx-speaker-chip.speaker-1 {
+  background: #e8edff;
+  color: #2b48a0;
+}
+
+.nfx-speaker-chip.speaker-2 {
+  background: #def7f1;
+  color: #176959;
+}
+
+.nfx-speaker-chip.speaker-unknown {
+  background: #eef1f5;
+  color: #51607a;
 }
 
 .nfx-correction-grid {

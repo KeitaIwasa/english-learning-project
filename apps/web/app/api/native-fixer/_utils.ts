@@ -11,7 +11,13 @@ export type SpeechFixCorrection = {
   corrected: string;
   ja: string;
   reasonJa: string;
+  speaker: 1 | 2 | "unknown";
   addedFlashcardId: string | null;
+};
+
+export type SpeechFixTranscriptTurn = {
+  speaker: 1 | 2 | "unknown";
+  text: string;
 };
 
 export type SpeechFixJob = {
@@ -71,6 +77,7 @@ export function normalizeCorrections(value: Json): SpeechFixCorrection[] {
     if (!original || !corrected || !ja || !reasonJa) {
       continue;
     }
+    const speaker = normalizeSpeaker(record.speaker);
     const index = Number.isFinite(Number(record.index)) ? Number(record.index) : i + 1;
     const addedFlashcardId = record.addedFlashcardId ? String(record.addedFlashcardId) : null;
     out.push({
@@ -79,10 +86,44 @@ export function normalizeCorrections(value: Json): SpeechFixCorrection[] {
       corrected,
       ja,
       reasonJa,
+      speaker,
       addedFlashcardId
     });
   }
   return out;
+}
+
+export function normalizeTranscriptTurns(value: Json): SpeechFixTranscriptTurn[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: SpeechFixTranscriptTurn[] = [];
+  for (const row of value) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      continue;
+    }
+    const record = row as Record<string, Json>;
+    const text = String(record.text ?? "").trim();
+    if (!text) {
+      continue;
+    }
+    out.push({
+      speaker: normalizeSpeaker(record.speaker),
+      text
+    });
+  }
+  return out;
+}
+
+function normalizeSpeaker(value: Json): 1 | 2 | "unknown" {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "1" || text === "speaker1" || text === "speaker_1") {
+    return 1;
+  }
+  if (text === "2" || text === "speaker2" || text === "speaker_2") {
+    return 2;
+  }
+  return "unknown";
 }
 
 export function createGcsObjectName(params: { userId: string; jobId: string; fileName: string }) {

@@ -2,7 +2,7 @@
 以下のツールはCLI使えます。
 - Vercel
 - Supabase
-- Gcloud
+- Gcloud（プロジェクトID：`gen-lang-client-0926290743`）
 
 # プロンプト
 - Geminiなどへのプロンプトは日本語で書いて
