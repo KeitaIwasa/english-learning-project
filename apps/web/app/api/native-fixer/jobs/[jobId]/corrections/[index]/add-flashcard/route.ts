@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { speechFixAddFlashcardSchema } from "@/lib/schemas";
-import { createAdminSupabaseClient, normalizeCorrections, requireAuthUser } from "../../../../../_utils";
+import { normalizeCorrections, requireAuthUser } from "../../../../../_utils";
 
 type RouteContext = {
   params: Promise<{ jobId: string; index: string }>;
@@ -9,6 +9,12 @@ type RouteContext = {
 export async function POST(request: Request, context: RouteContext) {
   const { supabase, user } = await requireAuthUser();
   if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -46,22 +52,20 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Already added", flashcardId: target.addedFlashcardId }, { status: 409 });
   }
 
-  const admin = createAdminSupabaseClient();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    return NextResponse.json({ error: "Missing service env vars" }, { status: 500 });
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !anonKey) {
+    return NextResponse.json({ error: "Missing Supabase env vars" }, { status: 500 });
   }
 
   const upstream = await fetch(`${supabaseUrl}/functions/v1/flashcards-add`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: anonKey
     },
     body: JSON.stringify({
-      userId: user.id,
       en: parsed.data.en,
       ja: parsed.data.ja || undefined,
       source: "web"
@@ -90,7 +94,7 @@ export async function POST(request: Request, context: RouteContext) {
     addedFlashcardId: flashcardId
   };
 
-  const { error: saveError } = await admin
+  const { error: saveError } = await supabase
     .from("speech_fix_jobs")
     .update({
       corrections_json: corrections

@@ -49,10 +49,8 @@ type JobDetail = {
 
 type ModalState = {
   correctionIndex: number;
-  original: string;
   corrected: string;
   ja: string;
-  reasonJa: string;
 };
 
 type ViewMode = "create" | "history";
@@ -299,12 +297,11 @@ export function NativeFixerClient() {
     if (!target || target.addedFlashcardId) {
       return;
     }
+    setErrorMessage("");
     setModal({
       correctionIndex,
-      original: target.original,
       corrected: target.corrected,
-      ja: target.ja,
-      reasonJa: target.reasonJa
+      ja: target.ja
     });
   };
 
@@ -333,9 +330,20 @@ export function NativeFixerClient() {
           })
         }
       );
-      const json = (await response.json()) as { error?: string };
+      const json = (await response.json()) as { error?: unknown; flashcardId?: string };
       if (!response.ok) {
-        throw new Error(json.error ?? "フラッシュカード追加に失敗しました。");
+        if (response.status === 409 && typeof json.flashcardId === "string" && json.flashcardId) {
+          await loadDetail(detail.id, false);
+          setModal(null);
+          return;
+        }
+        const errorText =
+          typeof json.error === "string"
+            ? json.error
+            : json.error
+              ? JSON.stringify(json.error)
+              : "フラッシュカード追加に失敗しました。";
+        throw new Error(errorText);
       }
 
       await loadDetail(detail.id, false);
@@ -641,10 +649,6 @@ export function NativeFixerClient() {
           <div className="nfx-modal panel">
             <h3>フラッシュカードに追加</h3>
             <label>
-              元の英文
-              <textarea value={modal.original} readOnly rows={2} />
-            </label>
-            <label>
               修正後の英文
               <textarea
                 value={modal.corrected}
@@ -676,12 +680,8 @@ export function NativeFixerClient() {
                       : prev
                   )
                 }
-              />
-            </label>
-            <label>
-              理由
-              <textarea value={modal.reasonJa} readOnly rows={2} />
-            </label>
+                />
+              </label>
             <div className="nfx-modal-actions">
               <button type="button" className="secondary" onClick={() => setModal(null)} disabled={addingCard}>
                 キャンセル
@@ -690,6 +690,7 @@ export function NativeFixerClient() {
                 {addingCard ? "追加中..." : "この内容で追加"}
               </button>
             </div>
+            {errorMessage ? <p className="nfx-error">{errorMessage}</p> : null}
           </div>
         </div>
       ) : null}
