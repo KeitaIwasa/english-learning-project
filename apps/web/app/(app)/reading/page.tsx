@@ -1,12 +1,12 @@
 import { ReadingGenerateButton } from "@/components/reading-generate-button";
 import { ReadingAudioButton } from "@/components/reading-audio-button";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getCurrentUser } from "@/lib/current-user";
 
 export default async function ReadingPage() {
-  const supabase = await createSupabaseServerClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
-  if (!userData.user) {
+  if (!user) {
     return (
       <section className="panel">
         <h2>Reading</h2>
@@ -15,13 +15,14 @@ export default async function ReadingPage() {
     );
   }
 
+  const supabase = await createSupabaseServerClient();
   const { data: passages } = await supabase
     .from("reading_passages")
     .select(
-      "id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date, audio_base64, audio_mime_type, audio_voice"
+      "id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date, audio_mime_type, audio_voice"
     )
     .order("generated_for_date", { ascending: false })
-    .limit(7);
+    .limit(1);
 
   const latest = passages?.[0];
   const reviewTargets = (latest?.used_review_targets_json as string[] | null) ?? [];
@@ -50,7 +51,7 @@ export default async function ReadingPage() {
           <span className="badge">{latest.generated_for_date}</span>
           <h3>{latest.title}</h3>
           <ReadingAudioButton
-            audioBase64={latest.audio_base64 ?? null}
+            passageId={latest.id}
             audioMimeType={latest.audio_mime_type ?? null}
             audioVoice={latest.audio_voice ?? null}
           />

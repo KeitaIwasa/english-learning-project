@@ -1,11 +1,10 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { UserMenu } from "@/components/user-menu";
 import { NavLinks } from "@/components/nav-links";
 import { GoogleLoginButton } from "@/components/google-login-button";
+import { getCurrentUser } from "@/lib/current-user";
 
 export async function AppNav() {
-  const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   return (
     <header className="app-header">
@@ -13,7 +12,7 @@ export async function AppNav() {
         <NavLinks />
       </nav>
       <div className="app-header-right">
-        {data.user ? <UserMenu email={data.user.email ?? ""} /> : <GoogleLoginButton compact />}
+        {user ? <UserMenu email={user.email ?? ""} /> : <GoogleLoginButton compact />}
       </div>
     </header>
   );
