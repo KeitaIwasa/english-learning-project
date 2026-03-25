@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextSm2 } from "../../../supabase/functions/_shared/sm2";
+import { nextSm2 } from "./sm2";
 
 describe("nextSm2", () => {
   it("updates interval and repetition for remembered(quality=4)", () => {

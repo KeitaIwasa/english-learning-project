@@ -1,69 +1,42 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { flashcardReviewRequestSchema } from "@/lib/schemas";
+import { createAdminSupabaseClient } from "@/lib/service";
+import { nextSm2 } from "@/lib/sm2";
+import {
+  buildReviewQueue,
+  type FlashcardReviewRow,
+  type FlashcardRow,
+  type QueueItem
+} from "@/lib/review-queue";
 
-async function getAuth() {
+const MAX_REVIEW_QUEUE = 50;
+
+async function getAuthUserId() {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user }
   } = await supabase.auth.getUser();
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-
-  if (!user || !session?.access_token) {
-    return { ok: false as const };
-  }
-
-  return {
-    ok: true as const,
-    accessToken: session.access_token
-  };
-}
-
-function getFunctionEnv() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !anonKey) {
-    throw new Error("Missing Supabase env vars");
-  }
-  return { supabaseUrl, anonKey };
+  return user?.id ?? null;
 }
 
 export async function GET() {
-  const auth = await getAuth();
-  if (!auth.ok) {
+  const userId = await getAuthUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const { supabaseUrl, anonKey } = getFunctionEnv();
-    const upstream = await fetch(`${supabaseUrl}/functions/v1/flashcards-review`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${auth.accessToken}`,
-        apikey: anonKey
-      }
-    });
-
-    const text = await upstream.text();
-    if (!upstream.ok) {
-      return NextResponse.json({ error: text || "flashcards-review invocation failed" }, { status: upstream.status });
-    }
-
-    try {
-      return NextResponse.json(JSON.parse(text));
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON from flashcards-review" }, { status: 502 });
-    }
+    const queuePayload = await loadQueue(createAdminSupabaseClient(), userId);
+    return NextResponse.json(queuePayload);
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  const auth = await getAuth();
-  if (!auth.ok) {
+  const userId = await getAuthUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -72,29 +45,97 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const serviceClient = createAdminSupabaseClient();
+
   try {
-    const { supabaseUrl, anonKey } = getFunctionEnv();
-    const upstream = await fetch(`${supabaseUrl}/functions/v1/flashcards-review`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${auth.accessToken}`,
-        apikey: anonKey
-      },
-      body: JSON.stringify(parsed.data)
+    const { data: card, error: cardError } = await serviceClient
+      .from("flashcards")
+      .select("id")
+      .eq("id", parsed.data.flashcardId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (cardError) {
+      throw cardError;
+    }
+    if (!card) {
+      return NextResponse.json({ error: "Flashcard not found" }, { status: 404 });
+    }
+
+    const { data: latestReview, error: latestReviewError } = await serviceClient
+      .from("flashcard_reviews")
+      .select("repetition, interval_days, ease_factor")
+      .eq("user_id", userId)
+      .eq("flashcard_id", parsed.data.flashcardId)
+      .order("reviewed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestReviewError) {
+      throw latestReviewError;
+    }
+
+    const quality = parsed.data.remembered ? 4 : 2;
+    const sm2 = nextSm2({
+      quality,
+      repetition: latestReview?.repetition ?? 0,
+      intervalDays: latestReview?.interval_days ?? 1,
+      easeFactor: latestReview?.ease_factor ?? 2.5
     });
 
-    const text = await upstream.text();
-    if (!upstream.ok) {
-      return NextResponse.json({ error: text || "flashcards-review invocation failed" }, { status: upstream.status });
+    const nextReviewAt = new Date();
+    nextReviewAt.setUTCDate(nextReviewAt.getUTCDate() + sm2.intervalDays);
+
+    const { error: insertError } = await serviceClient.from("flashcard_reviews").insert({
+      flashcard_id: parsed.data.flashcardId,
+      user_id: userId,
+      quality,
+      interval_days: sm2.intervalDays,
+      ease_factor: sm2.easeFactor,
+      repetition: sm2.repetition,
+      next_review_at: nextReviewAt.toISOString()
+    });
+
+    if (insertError) {
+      throw insertError;
     }
 
-    try {
-      return NextResponse.json(JSON.parse(text));
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON from flashcards-review" }, { status: 502 });
-    }
+    return NextResponse.json({
+      ok: true,
+      nextReviewAt: nextReviewAt.toISOString(),
+      flashcardId: parsed.data.flashcardId
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
+}
+
+async function loadQueue(
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>,
+  userId: string
+): Promise<{ queue: QueueItem[]; total: number; nextDueAt: string | null }> {
+  const { data: cards, error: cardsError } = await serviceClient
+    .from("flashcards")
+    .select("id, en, ja, created_at")
+    .eq("user_id", userId);
+
+  if (cardsError) {
+    throw cardsError;
+  }
+
+  const { data: reviews, error: reviewsError } = await serviceClient
+    .from("flashcard_reviews")
+    .select("flashcard_id, repetition, interval_days, ease_factor, next_review_at, reviewed_at")
+    .eq("user_id", userId)
+    .order("reviewed_at", { ascending: false });
+
+  if (reviewsError) {
+    throw reviewsError;
+  }
+
+  return buildReviewQueue({
+    cards: (cards ?? []) as FlashcardRow[],
+    reviews: (reviews ?? []) as FlashcardReviewRow[],
+    maxQueue: MAX_REVIEW_QUEUE
+  });
 }

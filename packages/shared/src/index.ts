@@ -3,3 +3,4 @@ export * from "./learning";
 export * from "./flashcards-review";
 export * from "./chat-context";
 export * from "./reading-conversation";
+export * from "./sm2";

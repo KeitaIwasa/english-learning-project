@@ -1,0 +1,101 @@
+import { appEnv } from "@/lib/app-env";
+import { generateWithGemini } from "@/lib/gemini";
+import { createAdminSupabaseClient } from "@/lib/service";
+
+function normalizeEnglish(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export async function addFlashcard(params: {
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>;
+  userId: string;
+  en: string;
+  ja?: string;
+  source: "web" | "extension" | "chat";
+}) {
+  const en = params.en.trim();
+  if (!en) {
+    throw new Error("English text is required");
+  }
+  const normalizedEn = normalizeEnglish(en);
+
+  const { data: existingCards, error: existingError } = await params.serviceClient
+    .from("flashcards")
+    .select("id, en, ja")
+    .eq("user_id", params.userId)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  const duplicated = (existingCards ?? []).find((item: { en: string }) => normalizeEnglish(item.en) === normalizedEn);
+  if (duplicated) {
+    return {
+      id: duplicated.id,
+      en: duplicated.en,
+      ja: duplicated.ja,
+      nextReviewAt: null,
+      duplicated: true
+    };
+  }
+
+  let ja = params.ja?.trim();
+  if (!ja) {
+    const translated = await generateWithGemini({
+      model: appEnv.geminiFastModel(),
+      instruction:
+        "ユーザーが入力した英語文を自然な日本語に翻訳してください。余計な説明は付けず、日本語の翻訳結果のみを出力してください。",
+      input: en
+    });
+    ja = translated.text.trim();
+  }
+
+  const { data: card, error: cardError } = await params.serviceClient
+    .from("flashcards")
+    .insert({
+      user_id: params.userId,
+      en,
+      ja,
+      source: params.source
+    })
+    .select("id, en, ja")
+    .single();
+
+  if (cardError) {
+    throw cardError;
+  }
+
+  const nextReviewAt = new Date();
+  nextReviewAt.setUTCDate(nextReviewAt.getUTCDate() + 1);
+
+  const { error: reviewError } = await params.serviceClient.from("flashcard_reviews").insert({
+    flashcard_id: card.id,
+    user_id: params.userId,
+    quality: 4,
+    interval_days: 1,
+    ease_factor: 2.5,
+    repetition: 0,
+    next_review_at: nextReviewAt.toISOString()
+  });
+
+  if (reviewError) {
+    throw reviewError;
+  }
+
+  return {
+    id: card.id,
+    en: card.en,
+    ja: card.ja,
+    nextReviewAt: nextReviewAt.toISOString(),
+    duplicated: false
+  };
+}
+
+export function isValidServiceRoleToken(token: string) {
+  if (!token) {
+    return false;
+  }
+  return token === appEnv.supabaseServiceRoleKey();
+}
