@@ -43,7 +43,7 @@ export async function GET(_: Request, context: RouteContext) {
       status: 200,
       headers: {
         "Content-Type": normalized.mimeType,
-        "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400"
+        "Cache-Control": "private, no-store"
       }
     });
   } catch (error) {

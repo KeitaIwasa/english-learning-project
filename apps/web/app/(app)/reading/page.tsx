@@ -3,6 +3,20 @@ import { ReadingAudioButton } from "@/components/reading-audio-button";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getCurrentUser } from "@/lib/current-user";
 
+type ReadingPassageRow = {
+  id: string;
+  title: string;
+  body_en: string;
+  glossary_ja_json: unknown;
+  used_review_targets_json: unknown;
+  rationale_json: unknown;
+  generated_for_date: string;
+  audio_mime_type: string | null;
+  audio_voice: string | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
 export default async function ReadingPage() {
   const user = await getCurrentUser();
 
@@ -16,13 +30,27 @@ export default async function ReadingPage() {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: passages } = await supabase
+  const baseSelect =
+    "id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date, audio_mime_type, audio_voice, created_at";
+
+  let passages: ReadingPassageRow[] = [];
+
+  const primary = await supabase
     .from("reading_passages")
-    .select(
-      "id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date, audio_mime_type, audio_voice"
-    )
+    .select(`${baseSelect}, updated_at`)
     .order("generated_for_date", { ascending: false })
     .limit(1);
+
+  if (primary.error && /updated_at/i.test(primary.error.message)) {
+    const fallback = await supabase
+      .from("reading_passages")
+      .select(baseSelect)
+      .order("generated_for_date", { ascending: false })
+      .limit(1);
+    passages = (fallback.data as ReadingPassageRow[] | null) ?? [];
+  } else {
+    passages = (primary.data as ReadingPassageRow[] | null) ?? [];
+  }
 
   const latest = passages?.[0];
   const reviewTargets = (latest?.used_review_targets_json as string[] | null) ?? [];
@@ -54,6 +82,13 @@ export default async function ReadingPage() {
             passageId={latest.id}
             audioMimeType={latest.audio_mime_type ?? null}
             audioVoice={latest.audio_voice ?? null}
+            audioUpdatedAt={
+              typeof latest.updated_at === "string"
+                ? latest.updated_at
+                : typeof latest.created_at === "string"
+                  ? latest.created_at
+                  : null
+            }
           />
           <p style={{ whiteSpace: "pre-wrap", lineHeight: "1.7" }}>{latest.body_en}</p>
           <h4>今日の復習ポイント</h4>

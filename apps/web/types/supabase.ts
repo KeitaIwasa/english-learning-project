@@ -58,6 +58,7 @@ export type Database = {
           audio_voice: string | null;
           rationale_json: Json;
           created_at: string;
+          updated_at: string;
         };
       };
       speech_fix_jobs: {

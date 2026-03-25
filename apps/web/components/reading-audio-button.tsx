@@ -4,11 +4,13 @@ type ReadingAudioButtonProps = {
   passageId: string;
   audioMimeType: string | null;
   audioVoice: string | null;
+  audioUpdatedAt: string | null;
 };
 
-export function ReadingAudioButton({ passageId, audioMimeType }: ReadingAudioButtonProps) {
+export function ReadingAudioButton({ passageId, audioMimeType, audioUpdatedAt }: ReadingAudioButtonProps) {
   const canPlay = Boolean(audioMimeType);
-  const src = `/api/reading/audio/${passageId}?v=2`;
+  const cacheKey = audioUpdatedAt ? encodeURIComponent(audioUpdatedAt) : "latest";
+  const src = `/api/reading/audio/${passageId}?v=3&t=${cacheKey}`;
   const sourceType = resolvePlayableMimeType(audioMimeType);
 
   return (
