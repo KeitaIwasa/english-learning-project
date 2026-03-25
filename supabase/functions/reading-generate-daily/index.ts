@@ -307,12 +307,12 @@ async function generateReading(params: {
   }
 
   const finalPrompt = [
-    "以下の会話履歴を学習文脈として、英語学習者向けの音読トレーニング文章を作ってください。",
+    "これまでの会話履歴を学習文脈として、英語学習者向けの音読トレーニング文章を作ってください。",
     "必須条件:",
     "- 本文は英語の2人会話台本として180〜220語程度",
     `- 使用できる話者名は「${speakerNames[0]}」と「${speakerNames[1]}」のみ`,
     "- 各行を「話者名: セリフ」形式にし、地の文は禁止",
-    "- 学習文脈に沿った語彙・言い回しを適度に再利用",
+    "- 学習文脈に沿った語彙・言い回しを適度に再利用。ただし、無理にすべて利用する必要はない。自然な会話文になるように取捨選択して。",
     "- 必ずJSONのみを返す",
     "- 出力スキーマ:",
     '{ "title": "string", "passage": "string", "glossary": [{ "en": "string", "ja": "string" }], "review_points": [{ "target": "string", "explanationJa": "string", "excerpt": "string" }], "used_targets": { "review": ["string"], "new": ["string"] } }'

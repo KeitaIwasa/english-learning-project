@@ -6,7 +6,7 @@ type ReadingAudioButtonProps = {
   audioVoice: string | null;
 };
 
-export function ReadingAudioButton({ passageId, audioMimeType, audioVoice }: ReadingAudioButtonProps) {
+export function ReadingAudioButton({ passageId, audioMimeType }: ReadingAudioButtonProps) {
   const canPlay = Boolean(audioMimeType);
 
   return (
