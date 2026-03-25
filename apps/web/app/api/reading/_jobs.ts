@@ -1,5 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import { getServiceEnv } from "@/lib/service";
+import { createAdminSupabaseClient } from "@/lib/service";
+import { enqueueWorkerTask } from "@/lib/cloud-tasks";
 
 export type ReadingGenerationTriggerType = "manual" | "cron";
 export type ReadingGenerationJobStatus = "queued" | "processing" | "completed" | "failed";
@@ -50,16 +50,6 @@ type ExecuteReadingGenerationResult =
     };
 
 const PROCESSING_TIMEOUT_MS = 15 * 60 * 1000;
-
-export function createAdminSupabaseClient() {
-  const { supabaseUrl, serviceRoleKey } = getServiceEnv();
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  });
-}
 
 export function resolveTargetDate(rawDate: unknown) {
   if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
@@ -192,59 +182,26 @@ export async function executeReadingGeneration(params: ExecuteReadingGenerationP
 
   const queuedJob = queuedInsert.data as ReadingGenerationJob;
 
-  const processingUpdate = await params.adminClient
-    .from("reading_generation_jobs")
-    .update({
-      status: "processing",
-      started_at: new Date().toISOString(),
-      error_message: null
-    })
-    .eq("id", queuedJob.id)
-    .eq("status", "queued")
-    .select("id, user_id, target_date, trigger_type, status, error_message, started_at, completed_at, created_at, updated_at")
-    .maybeSingle();
-
-  if (processingUpdate.error) {
-    throw processingUpdate.error;
-  }
-
-  if (!processingUpdate.data) {
-    const conflicted = await getActiveJob({
-      adminClient: params.adminClient,
-      userId: params.userId,
-      targetDate: params.targetDate
+  try {
+    await enqueueWorkerTask({
+      kind: "reading",
+      payload: {
+        jobId: queuedJob.id,
+        userId: params.userId,
+        targetDate: params.targetDate,
+        force: params.force,
+        profileId: params.profileId
+      }
     });
-    if (conflicted) {
-      return {
-        ok: false,
-        conflict: true,
-        job: conflicted,
-        error: "すでに生成中です。",
-        status: 409
-      };
-    }
-
-    throw new Error("Failed to transition reading_generation_jobs to processing");
-  }
-
-  const processingJob = processingUpdate.data as ReadingGenerationJob;
-
-  const upstream = await invokeReadingGenerateDaily({
-    userId: params.userId,
-    targetDate: params.targetDate,
-    force: params.force,
-    profileId: params.profileId
-  });
-
-  if (!upstream.ok) {
+  } catch (error) {
     const failedUpdate = await params.adminClient
       .from("reading_generation_jobs")
       .update({
         status: "failed",
-        error_message: upstream.error,
+        error_message: String(error),
         completed_at: new Date().toISOString()
       })
-      .eq("id", processingJob.id)
+      .eq("id", queuedJob.id)
       .select("id, user_id, target_date, trigger_type, status, error_message, started_at, completed_at, created_at, updated_at")
       .single();
 
@@ -256,85 +213,16 @@ export async function executeReadingGeneration(params: ExecuteReadingGenerationP
       ok: false,
       conflict: false,
       job: failedUpdate.data as ReadingGenerationJob,
-      error: upstream.error,
-      status: upstream.status
+      error: String(error),
+      status: 500
     };
-  }
-
-  const completedUpdate = await params.adminClient
-    .from("reading_generation_jobs")
-    .update({
-      status: "completed",
-      completed_at: new Date().toISOString(),
-      error_message: null
-    })
-    .eq("id", processingJob.id)
-    .select("id, user_id, target_date, trigger_type, status, error_message, started_at, completed_at, created_at, updated_at")
-    .single();
-
-  if (completedUpdate.error) {
-    throw completedUpdate.error;
   }
 
   return {
     ok: true,
     conflict: false,
-    job: completedUpdate.data as ReadingGenerationJob,
-    payload: upstream.payload,
-    status: upstream.status
+    job: queuedJob,
+    payload: { queued: true },
+    status: 202
   };
-}
-
-async function invokeReadingGenerateDaily(params: {
-  userId: string;
-  targetDate: string;
-  force: boolean;
-  profileId?: string;
-}) {
-  const { supabaseUrl, serviceRoleKey } = getServiceEnv();
-
-  const response = await fetch(`${supabaseUrl}/functions/v1/reading-generate-daily`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey
-    },
-    body: JSON.stringify({
-      userId: params.userId,
-      force: params.force,
-      date: params.targetDate,
-      profileId: params.profileId
-    })
-  });
-
-  const raw = await response.text();
-  const payload = parseMaybeJson(raw);
-  const payloadError = typeof payload?.error === "string" ? payload.error : "";
-
-  if (!response.ok || payloadError) {
-    const fallbackError = raw.trim() || `reading-generate-daily failed: ${response.status}`;
-    return {
-      ok: false as const,
-      status: response.status >= 400 ? response.status : 500,
-      error: payloadError || fallbackError
-    };
-  }
-
-  return {
-    ok: true as const,
-    status: response.status,
-    payload
-  };
-}
-
-function parseMaybeJson(raw: string): Record<string, unknown> {
-  if (!raw.trim()) {
-    return {};
-  }
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return { raw };
-  }
 }

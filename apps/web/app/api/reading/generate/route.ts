@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createAdminSupabaseClient } from "@/lib/service";
 import {
-  createAdminSupabaseClient,
   executeReadingGeneration,
   getLatestJobForDate,
   markTimedOutProcessingJobs,

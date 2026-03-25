@@ -7,6 +7,7 @@ import { LoaderCircle } from "lucide-react";
 type ReadingJobStatus = "queued" | "processing" | "completed" | "failed";
 
 type ReadingGenerateApiResponse = {
+  queued?: boolean;
   created?: boolean;
   hasAudio?: boolean;
   error?: string;
@@ -109,6 +110,12 @@ export function ReadingGenerateButton() {
       if (!res.ok || data.error) {
         setJobStatus((data.status as ReadingJobStatus | null) ?? "failed");
         setMessage(`失敗: ${data.error ?? "生成に失敗しました。"}`);
+        return;
+      }
+
+      if (data.queued || data.status === "queued" || data.status === "processing") {
+        setJobStatus((data.status as ReadingJobStatus | null) ?? "queued");
+        setMessage("生成を開始しました。完了までしばらくお待ちください。");
         return;
       }
 
