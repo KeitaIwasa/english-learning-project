@@ -21,15 +21,3 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = [
   "http://localhost:3000/auth/callback"
 ]
-
-[functions.chat-router]
-verify_jwt = false
-
-[functions.flashcards-add]
-verify_jwt = false
-
-[functions.flashcards-review]
-verify_jwt = false
-
-[functions.speech-fixer-process]
-verify_jwt = false
