@@ -1,4 +1,5 @@
 import { appEnv } from "@/lib/app-env";
+import { normalizeAudioForPlayback } from "@/lib/audio-format";
 
 type GeminiGenerateResult = {
   text: string;
@@ -261,5 +262,5 @@ export async function synthesizeSpeechWithGemini(params: {
     throw new Error("Gemini TTS response audio data is empty");
   }
 
-  return { audioBase64, mimeType };
+  return normalizeAudioForPlayback({ audioBase64, mimeType });
 }

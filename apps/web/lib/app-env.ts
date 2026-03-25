@@ -6,6 +6,14 @@ export function requireEnv(name: string): string {
   return value;
 }
 
+export function requireRawEnv(name: string): string {
+  const value = String(process.env[name] ?? "").trim();
+  if (!value) {
+    throw new Error(`Missing environment variable: ${name}`);
+  }
+  return value;
+}
+
 export function optionalEnv(name: string, fallback: string): string {
   return normalizeEnv(process.env[name]) || fallback;
 }
@@ -23,7 +31,7 @@ export const appEnv = {
   geminiTtsModel: () => optionalEnv("GEMINI_TTS_MODEL", "gemini-2.5-pro-preview-tts"),
   geminiTtsSpeaker1Voice: () => optionalEnv("GEMINI_TTS_SPEAKER1_VOICE", "Alnilam"),
   geminiTtsSpeaker2Voice: () => optionalEnv("GEMINI_TTS_SPEAKER2_VOICE", "Leda"),
-  googleApplicationCredentialsJson: () => requireEnv("GOOGLE_APPLICATION_CREDENTIALS_JSON"),
+  googleApplicationCredentialsJson: () => requireRawEnv("GOOGLE_APPLICATION_CREDENTIALS_JSON"),
   googleSpeechV2Location: () => optionalEnv("GOOGLE_SPEECH_V2_LOCATION", "us"),
   googleSpeechModel: () => optionalEnv("GOOGLE_SPEECH_MODEL", "chirp_3"),
   supabaseUrl: () => requireEnv("NEXT_PUBLIC_SUPABASE_URL"),

@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     })
     .eq("id", jobId)
     .eq("user_id", userId)
-    .in("status", ["queued", "processing"])
+    .eq("status", "queued")
     .select("id, status")
     .maybeSingle();
 
