@@ -2,11 +2,15 @@ import { appEnv } from "@/lib/app-env";
 import {
   deleteFromGcs,
   extractTranscriptFromSpeechBatchResponse,
+  extractTranscriptFromSpeechLongRunningResponse,
   getGoogleAccessToken,
   getGoogleProjectIdFromServiceAccountJson,
   getSpeechBatchOperation,
+  getSpeechLongRunningOperationV1,
   parseGoogleServiceAccount,
-  startSpeechBatchRecognize
+  type SpeechDiarizedTurn,
+  startSpeechBatchRecognize,
+  startSpeechLongRunningRecognizeV1
 } from "@/lib/google-cloud";
 import { buildSpeechFixCorrections } from "@/lib/speech-fixer";
 import { createAdminSupabaseClient } from "@/lib/service";
@@ -32,6 +36,7 @@ type SpeechFixJobRow = {
 
 type JobStats = {
   sttOperationName?: string;
+  sttFallbackV1OperationName?: string;
   gcsBucket?: string;
   gcsObjectName?: string;
   gcsUri?: string;
@@ -41,6 +46,7 @@ type JobStats = {
 const MAX_BATCH_DEFAULT = 3;
 const MIN_TRANSCRIPT_LENGTH_FOR_LARGE_FILE = 80;
 const LARGE_FILE_BYTES = 2_000_000;
+const SPEECH_V2_TOO_LONG_MARKER = "up to 60 minutes long are supported for BatchRecognize";
 
 export async function runSpeechFixerProcess(params: {
   serviceClient: ReturnType<typeof createAdminSupabaseClient>;
@@ -206,10 +212,38 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createAdmi
   try {
     const sttLocation = typeof stats.sttLocation === "string" ? stats.sttLocation : appEnv.googleSpeechV2Location();
     const gcsUri = typeof stats.gcsUri === "string" ? stats.gcsUri : null;
+    if (!gcsUri) {
+      await failJob(serviceClient, job, "GCS URI missing for STT");
+      return "failed" as const;
+    }
     const accessToken = await getGoogleAccessToken({
       serviceAccount: parseGoogleServiceAccount(appEnv.googleApplicationCredentialsJson()),
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     });
+    const fallbackOperationName = typeof stats.sttFallbackV1OperationName === "string" ? stats.sttFallbackV1OperationName : "";
+    if (fallbackOperationName) {
+      const fallbackOperation = await getSpeechLongRunningOperationV1({
+        accessToken,
+        operationName: fallbackOperationName
+      });
+      if (!fallbackOperation.done) {
+        return "pending" as const;
+      }
+      if (fallbackOperation.error?.message) {
+        const failedAt = new Date().toISOString();
+        await failJob(serviceClient, job, `Speech-to-Text fallback failed: ${fallbackOperation.error.message}`, {
+          ...stats,
+          sttCompletedAt: failedAt,
+          sttError: fallbackOperation.error.message
+        });
+        return "failed" as const;
+      }
+      const fallbackTranscriptResult = extractTranscriptFromSpeechLongRunningResponse({
+        response: fallbackOperation.response ?? {}
+      });
+      return await completeJobWithTranscript(serviceClient, job, stats, fallbackTranscriptResult);
+    }
+
     const operation = await getSpeechBatchOperation({
       accessToken,
       location: sttLocation,
@@ -234,6 +268,64 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createAdmi
       response: operation.response ?? {},
       gcsUri: gcsUri ?? undefined
     });
+    const batchFileError = transcriptResult.fileErrors.find((message) => String(message).trim().length > 0);
+    if (batchFileError) {
+      if (batchFileError.includes(SPEECH_V2_TOO_LONG_MARKER)) {
+        const v1OperationName = await startSpeechLongRunningRecognizeV1({
+          accessToken,
+          gcsUri,
+          languageCode: "en-US",
+          model: "latest_long"
+        });
+        const fallbackStartedAt = new Date().toISOString();
+        const nextStats = {
+          ...stats,
+          sttFallbackReason: "v2_batch_too_long",
+          sttFallbackV1OperationName: v1OperationName,
+          sttFallbackV1StartedAt: fallbackStartedAt,
+          sttFallbackV1Model: "latest_long",
+          sttError: batchFileError
+        };
+        const { error: updateError } = await serviceClient
+          .from("speech_fix_jobs")
+          .update({
+            status: "processing",
+            stats_json: nextStats,
+            error_message: null
+          })
+          .eq("id", job.id);
+        if (updateError) {
+          throw updateError;
+        }
+        return "pending" as const;
+      }
+      await failJob(serviceClient, job, `Speech-to-Text failed: ${batchFileError}`, {
+        ...stats,
+        sttError: batchFileError
+      });
+      return "failed" as const;
+    }
+
+    return await completeJobWithTranscript(serviceClient, job, stats, transcriptResult);
+  } catch (error) {
+    await failJob(serviceClient, job, String(error), getStats(job));
+    return "failed" as const;
+  }
+}
+
+async function completeJobWithTranscript(
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>,
+  job: SpeechFixJobRow,
+  stats: JobStats,
+  transcriptResult: {
+    transcript: string;
+    totalResultCount: number;
+    nonEmptyResultCount: number;
+    emptyResultCount: number;
+    turns: SpeechDiarizedTurn[];
+    detectedSpeakerCount: number;
+  }
+) {
     const transcript = transcriptResult.transcript.trim();
     if (!transcript) {
       await failJob(serviceClient, job, "Speech-to-Text returned empty transcript", {
@@ -306,10 +398,6 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createAdmi
     });
 
     return "completed" as const;
-  } catch (error) {
-    await failJob(serviceClient, job, String(error), getStats(job));
-    return "failed" as const;
-  }
 }
 
 async function failJob(

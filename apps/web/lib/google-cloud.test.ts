@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
-import { buildGcsV4SignedPutUrl, checkGcsObjectExists, parseGoogleServiceAccount } from "./google-cloud";
+import {
+  buildGcsV4SignedPutUrl,
+  checkGcsObjectExists,
+  extractTranscriptFromSpeechBatchResponse,
+  extractTranscriptFromSpeechLongRunningResponse,
+  parseGoogleServiceAccount
+} from "./google-cloud";
 
 function createServiceAccountFixture() {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -45,5 +51,69 @@ describe("checkGcsObjectExists", () => {
       })
     ).resolves.toEqual({ exists: false });
     vi.unstubAllGlobals();
+  });
+});
+
+describe("extractTranscriptFromSpeechBatchResponse", () => {
+  it("returns file-level errors from batch response", () => {
+    const extracted = extractTranscriptFromSpeechBatchResponse({
+      response: {
+        results: {
+          "gs://bucket/audio.mp3": {
+            error: {
+              code: 3,
+              message: "File is too long. Only audio files up to 60 minutes long are supported for BatchRecognize."
+            },
+            transcript: { results: [] },
+            inlineResult: { transcript: { results: [] } }
+          }
+        }
+      },
+      gcsUri: "gs://bucket/audio.mp3"
+    });
+    expect(extracted.transcript).toBe("");
+    expect(extracted.fileErrors).toEqual([
+      "File is too long. Only audio files up to 60 minutes long are supported for BatchRecognize."
+    ]);
+  });
+});
+
+describe("extractTranscriptFromSpeechLongRunningResponse", () => {
+  it("extracts transcript and diarized turns from v1 response", () => {
+    const extracted = extractTranscriptFromSpeechLongRunningResponse({
+      response: {
+        results: [
+          {
+            alternatives: [
+              {
+                transcript: "hello there",
+                words: [
+                  { word: "hello", speakerTag: 1 },
+                  { word: "there", speakerTag: 1 }
+                ]
+              }
+            ]
+          },
+          {
+            alternatives: [
+              {
+                transcript: "how are you",
+                words: [
+                  { word: "how", speakerTag: 2 },
+                  { word: "are", speakerTag: 2 },
+                  { word: "you", speakerTag: 2 }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    });
+    expect(extracted.transcript).toBe("hello there\nhow are you");
+    expect(extracted.turns).toEqual([
+      { speaker: 1, text: "hello there" },
+      { speaker: 2, text: "how are you" }
+    ]);
+    expect(extracted.detectedSpeakerCount).toBe(2);
   });
 });

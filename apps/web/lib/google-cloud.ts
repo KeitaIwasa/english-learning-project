@@ -16,6 +16,28 @@ export type SpeechDiarizedTurn = {
   text: string;
 };
 
+type SpeechWord = {
+  word?: string;
+  text?: string;
+  speakerLabel?: string | number;
+  speakerTag?: string | number;
+};
+
+type SpeechAlternative = {
+  transcript?: string;
+  words?: SpeechWord[];
+};
+
+type SpeechResultRow = {
+  alternatives?: SpeechAlternative[];
+};
+
+type SpeechTranscriptContainer = {
+  transcript?: {
+    results?: SpeechResultRow[];
+  };
+};
+
 export function parseGoogleServiceAccount(rawJson: string): ServiceAccount {
   let source = String(rawJson ?? "").trim();
   while (source.endsWith("\\n")) {
@@ -290,37 +312,77 @@ export async function getSpeechBatchOperation(params: {
   };
 }
 
+export async function startSpeechLongRunningRecognizeV1(params: {
+  accessToken: string;
+  gcsUri: string;
+  languageCode: string;
+  model: string;
+}) {
+  const response = await fetch("https://speech.googleapis.com/v1/speech:longrunningrecognize", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      config: {
+        languageCode: params.languageCode,
+        model: params.model,
+        enableAutomaticPunctuation: true
+      },
+      audio: {
+        uri: params.gcsUri
+      }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Speech v1 longRunningRecognize failed: ${response.status} ${await response.text()}`);
+  }
+  const json = (await response.json()) as { name?: string };
+  if (!json.name) {
+    throw new Error("Speech v1 response missing operation name");
+  }
+  return json.name;
+}
+
+export async function getSpeechLongRunningOperationV1(params: {
+  accessToken: string;
+  operationName: string;
+}) {
+  const operationName = String(params.operationName ?? "").replace(/^\/+/, "");
+  const response = await fetch(`https://speech.googleapis.com/v1/operations/${operationName}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Speech v1 get operation failed: ${response.status} ${await response.text()}`);
+  }
+  return (await response.json()) as {
+    done?: boolean;
+    error?: { message?: string };
+    response?: {
+      results?: SpeechResultRow[];
+    };
+  };
+}
+
 export function extractTranscriptFromSpeechBatchResponse(params: {
   response?: {
     results?: Record<
       string,
       {
+        error?: {
+          code?: number;
+          message?: string;
+        };
         transcript?: {
-          results?: Array<{
-            alternatives?: Array<{
-              transcript?: string;
-              words?: Array<{
-                word?: string;
-                text?: string;
-                speakerLabel?: string | number;
-                speakerTag?: string | number;
-              }>;
-            }>;
-          }>;
+          results?: SpeechResultRow[];
         };
         inlineResult?: {
           transcript?: {
-            results?: Array<{
-              alternatives?: Array<{
-                transcript?: string;
-                words?: Array<{
-                  word?: string;
-                  text?: string;
-                  speakerLabel?: string | number;
-                  speakerTag?: string | number;
-                }>;
-              }>;
-            }>;
+            results?: SpeechResultRow[];
           };
         };
       }
@@ -332,40 +394,40 @@ export function extractTranscriptFromSpeechBatchResponse(params: {
   const files = response.results ?? {};
   const target = findSpeechFileResult(files, params.gcsUri);
   const transcriptResults = target?.transcript?.results ?? target?.inlineResult?.transcript?.results ?? [];
-
-  let emptyResultCount = 0;
-  const lines: string[] = [];
-  const turns: SpeechDiarizedTurn[] = [];
-  for (const row of transcriptResults) {
-    const firstAlt = row.alternatives?.[0];
-    const transcript = firstAlt?.transcript?.trim() ?? "";
-    if (!transcript) {
-      emptyResultCount += 1;
-      continue;
+  const transcriptData = collectTranscriptResult(transcriptResults);
+  const fileErrors: string[] = [];
+  for (const fileResult of Object.values(files)) {
+    const message = String(fileResult?.error?.message ?? "").trim();
+    if (message) {
+      fileErrors.push(message);
     }
-    lines.push(transcript);
-    const rowTurns = buildTurnsFromWords(firstAlt);
-    if (rowTurns.length > 0) {
-      for (const turn of rowTurns) {
-        pushTurn(turns, turn);
-      }
-      continue;
-    }
-    pushTurn(turns, { speaker: "unknown", text: transcript });
-  }
-
-  const detectedSpeakerSet = new Set<SpeechDiarizedSpeaker>();
-  for (const turn of turns) {
-    detectedSpeakerSet.add(turn.speaker);
   }
 
   return {
-    transcript: lines.join("\n").trim(),
-    totalResultCount: transcriptResults.length,
-    nonEmptyResultCount: lines.length,
-    emptyResultCount,
-    turns,
-    detectedSpeakerCount: detectedSpeakerSet.size
+    transcript: transcriptData.transcript,
+    totalResultCount: transcriptData.totalResultCount,
+    nonEmptyResultCount: transcriptData.nonEmptyResultCount,
+    emptyResultCount: transcriptData.emptyResultCount,
+    turns: transcriptData.turns,
+    detectedSpeakerCount: transcriptData.detectedSpeakerCount,
+    fileErrors
+  };
+}
+
+export function extractTranscriptFromSpeechLongRunningResponse(params: {
+  response?: {
+    results?: SpeechResultRow[];
+  };
+}) {
+  const transcriptResults = params.response?.results ?? [];
+  const transcriptData = collectTranscriptResult(transcriptResults);
+  return {
+    transcript: transcriptData.transcript,
+    totalResultCount: transcriptData.totalResultCount,
+    nonEmptyResultCount: transcriptData.nonEmptyResultCount,
+    emptyResultCount: transcriptData.emptyResultCount,
+    turns: transcriptData.turns,
+    detectedSpeakerCount: transcriptData.detectedSpeakerCount
   };
 }
 
@@ -396,32 +458,16 @@ function findSpeechFileResult(
   files: Record<
     string,
     {
+      error?: {
+        code?: number;
+        message?: string;
+      };
       transcript?: {
-        results?: Array<{
-          alternatives?: Array<{
-            transcript?: string;
-            words?: Array<{
-              word?: string;
-              text?: string;
-              speakerLabel?: string | number;
-              speakerTag?: string | number;
-            }>;
-          }>;
-        }>;
+        results?: SpeechResultRow[];
       };
       inlineResult?: {
         transcript?: {
-          results?: Array<{
-            alternatives?: Array<{
-              transcript?: string;
-              words?: Array<{
-                word?: string;
-                text?: string;
-                speakerLabel?: string | number;
-                speakerTag?: string | number;
-              }>;
-            }>;
-          }>;
+          results?: SpeechResultRow[];
         };
       };
     }
@@ -436,12 +482,7 @@ function findSpeechFileResult(
 }
 
 function buildTurnsFromWords(alternative: {
-  words?: Array<{
-    word?: string;
-    text?: string;
-    speakerLabel?: string | number;
-    speakerTag?: string | number;
-  }>;
+  words?: SpeechWord[];
 } | null | undefined): SpeechDiarizedTurn[] {
   const words = Array.isArray(alternative?.words) ? alternative.words : [];
   if (words.length === 0) {
@@ -477,6 +518,43 @@ function buildTurnsFromWords(alternative: {
   }
   flush();
   return turns;
+}
+
+function collectTranscriptResult(results: SpeechResultRow[]) {
+  let emptyResultCount = 0;
+  const lines: string[] = [];
+  const turns: SpeechDiarizedTurn[] = [];
+  for (const row of results) {
+    const firstAlt = row.alternatives?.[0];
+    const transcript = firstAlt?.transcript?.trim() ?? "";
+    if (!transcript) {
+      emptyResultCount += 1;
+      continue;
+    }
+    lines.push(transcript);
+    const rowTurns = buildTurnsFromWords(firstAlt);
+    if (rowTurns.length > 0) {
+      for (const turn of rowTurns) {
+        pushTurn(turns, turn);
+      }
+      continue;
+    }
+    pushTurn(turns, { speaker: "unknown", text: transcript });
+  }
+
+  const detectedSpeakerSet = new Set<SpeechDiarizedSpeaker>();
+  for (const turn of turns) {
+    detectedSpeakerSet.add(turn.speaker);
+  }
+
+  return {
+    transcript: lines.join("\n").trim(),
+    totalResultCount: results.length,
+    nonEmptyResultCount: lines.length,
+    emptyResultCount,
+    turns,
+    detectedSpeakerCount: detectedSpeakerSet.size
+  };
 }
 
 function normalizeSpeakerId(value: unknown): SpeechDiarizedSpeaker {
