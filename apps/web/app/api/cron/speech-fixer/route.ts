@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServiceEnv } from "@/lib/service";
+import { enqueueWorkerTask } from "@/lib/cloud-tasks";
 
 export async function POST(request: Request) {
   try {
@@ -8,19 +8,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { supabaseUrl, serviceRoleKey } = getServiceEnv();
-    const response = await fetch(`${supabaseUrl}/functions/v1/speech-fixer-process`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey
-      },
-      body: JSON.stringify({})
+    const body = await request.json().catch(() => ({}));
+    const limit = Math.max(1, Math.min(10, Number(body?.limit ?? 3)));
+    const taskName = await enqueueWorkerTask({
+      kind: "speech_fixer",
+      payload: { limit, trigger: "cron" }
     });
-
-    const text = await response.text();
-    return NextResponse.json({ ok: response.ok, status: response.status, body: text }, { status: response.ok ? 200 : 500 });
+    return NextResponse.json({ ok: true, queued: true, taskName, limit });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

@@ -3,11 +3,18 @@ import { createHash, createSign } from "node:crypto";
 type ServiceAccount = {
   client_email: string;
   private_key: string;
+  project_id?: string;
   token_uri?: string;
 };
 
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const GCS_HOST = "storage.googleapis.com";
+
+export type SpeechDiarizedSpeaker = 1 | 2 | "unknown";
+export type SpeechDiarizedTurn = {
+  speaker: SpeechDiarizedSpeaker;
+  text: string;
+};
 
 export function parseGoogleServiceAccount(rawJson: string): ServiceAccount {
   let source = String(rawJson ?? "").trim();
@@ -36,8 +43,18 @@ export function parseGoogleServiceAccount(rawJson: string): ServiceAccount {
   return {
     client_email: clientEmail,
     private_key: privateKey,
+    project_id: obj.project_id,
     token_uri: tokenUri
   };
+}
+
+export function getGoogleProjectIdFromServiceAccountJson(rawJson: string): string {
+  const account = parseGoogleServiceAccount(rawJson);
+  const projectId = String(account.project_id ?? "").trim();
+  if (!projectId) {
+    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON missing project_id");
+  }
+  return projectId;
 }
 
 export function buildGcsV4SignedPutUrl(params: {
@@ -76,12 +93,7 @@ export function buildGcsV4SignedPutUrl(params: {
     "content-type;host",
     "UNSIGNED-PAYLOAD"
   ].join("\n");
-  const stringToSign = [
-    "GOOG4-RSA-SHA256",
-    iso,
-    scope,
-    sha256Hex(canonicalRequest)
-  ].join("\n");
+  const stringToSign = ["GOOG4-RSA-SHA256", iso, scope, sha256Hex(canonicalRequest)].join("\n");
 
   const signer = createSign("RSA-SHA256");
   signer.update(stringToSign);
@@ -159,6 +171,204 @@ export async function checkGcsObjectExists(params: {
   };
 }
 
+export async function deleteFromGcs(params: {
+  accessToken: string;
+  bucket: string;
+  objectName: string;
+}) {
+  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(params.bucket)}/o/${encodeURIComponent(params.objectName)}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`
+    }
+  });
+  if (response.status === 404) {
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`GCS delete failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+export async function startSpeechBatchRecognize(params: {
+  accessToken: string;
+  projectId: string;
+  location: string;
+  languageCode: string;
+  model: string;
+  gcsUri: string;
+}) {
+  const base = `https://${encodeURIComponent(params.location)}-speech.googleapis.com`;
+  const path = `/v2/projects/${encodeURIComponent(params.projectId)}/locations/${encodeURIComponent(params.location)}/recognizers/_:batchRecognize`;
+  const response = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      config: {
+        autoDecodingConfig: {},
+        languageCodes: [params.languageCode],
+        model: params.model,
+        features: {
+          enableAutomaticPunctuation: true,
+          diarizationConfig: {}
+        }
+      },
+      files: [{ uri: params.gcsUri }],
+      recognitionOutputConfig: {
+        inlineResponseConfig: {}
+      }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Speech batchRecognize failed: ${response.status} ${await response.text()}`);
+  }
+
+  const json = (await response.json()) as { name?: string };
+  if (!json.name) {
+    throw new Error("Speech response missing operation name");
+  }
+  return json.name;
+}
+
+export async function getSpeechBatchOperation(params: {
+  accessToken: string;
+  location: string;
+  operationName: string;
+}) {
+  const operationName = String(params.operationName ?? "").replace(/^\/+/, "");
+  const response = await fetch(`https://${encodeURIComponent(params.location)}-speech.googleapis.com/v2/${operationName}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Speech get operation failed: ${response.status} ${await response.text()}`);
+  }
+  return (await response.json()) as {
+    done?: boolean;
+    error?: { message?: string };
+    response?: {
+      results?: Record<
+        string,
+        {
+          transcript?: {
+            results?: Array<{
+              alternatives?: Array<{
+                transcript?: string;
+                words?: Array<{
+                  word?: string;
+                  text?: string;
+                  speakerLabel?: string | number;
+                  speakerTag?: string | number;
+                }>;
+              }>;
+            }>;
+          };
+          inlineResult?: {
+            transcript?: {
+              results?: Array<{
+                alternatives?: Array<{
+                  transcript?: string;
+                  words?: Array<{
+                    word?: string;
+                    text?: string;
+                    speakerLabel?: string | number;
+                    speakerTag?: string | number;
+                  }>;
+                }>;
+              }>;
+            };
+          };
+        }
+      >;
+    };
+  };
+}
+
+export function extractTranscriptFromSpeechBatchResponse(params: {
+  response?: {
+    results?: Record<
+      string,
+      {
+        transcript?: {
+          results?: Array<{
+            alternatives?: Array<{
+              transcript?: string;
+              words?: Array<{
+                word?: string;
+                text?: string;
+                speakerLabel?: string | number;
+                speakerTag?: string | number;
+              }>;
+            }>;
+          }>;
+        };
+        inlineResult?: {
+          transcript?: {
+            results?: Array<{
+              alternatives?: Array<{
+                transcript?: string;
+                words?: Array<{
+                  word?: string;
+                  text?: string;
+                  speakerLabel?: string | number;
+                  speakerTag?: string | number;
+                }>;
+              }>;
+            }>;
+          };
+        };
+      }
+    >;
+  };
+  gcsUri?: string;
+}) {
+  const response = params.response ?? {};
+  const files = response.results ?? {};
+  const target = findSpeechFileResult(files, params.gcsUri);
+  const transcriptResults = target?.transcript?.results ?? target?.inlineResult?.transcript?.results ?? [];
+
+  let emptyResultCount = 0;
+  const lines: string[] = [];
+  const turns: SpeechDiarizedTurn[] = [];
+  for (const row of transcriptResults) {
+    const firstAlt = row.alternatives?.[0];
+    const transcript = firstAlt?.transcript?.trim() ?? "";
+    if (!transcript) {
+      emptyResultCount += 1;
+      continue;
+    }
+    lines.push(transcript);
+    const rowTurns = buildTurnsFromWords(firstAlt);
+    if (rowTurns.length > 0) {
+      for (const turn of rowTurns) {
+        pushTurn(turns, turn);
+      }
+      continue;
+    }
+    pushTurn(turns, { speaker: "unknown", text: transcript });
+  }
+
+  const detectedSpeakerSet = new Set<SpeechDiarizedSpeaker>();
+  for (const turn of turns) {
+    detectedSpeakerSet.add(turn.speaker);
+  }
+
+  return {
+    transcript: lines.join("\n").trim(),
+    totalResultCount: transcriptResults.length,
+    nonEmptyResultCount: lines.length,
+    emptyResultCount,
+    turns,
+    detectedSpeakerCount: detectedSpeakerSet.size
+  };
+}
+
 function toIsoBasicUtc(date: Date) {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
@@ -180,4 +390,135 @@ function encodePath(path: string) {
     .split("/")
     .map((part) => pctEncode(part))
     .join("/");
+}
+
+function findSpeechFileResult(
+  files: Record<
+    string,
+    {
+      transcript?: {
+        results?: Array<{
+          alternatives?: Array<{
+            transcript?: string;
+            words?: Array<{
+              word?: string;
+              text?: string;
+              speakerLabel?: string | number;
+              speakerTag?: string | number;
+            }>;
+          }>;
+        }>;
+      };
+      inlineResult?: {
+        transcript?: {
+          results?: Array<{
+            alternatives?: Array<{
+              transcript?: string;
+              words?: Array<{
+                word?: string;
+                text?: string;
+                speakerLabel?: string | number;
+                speakerTag?: string | number;
+              }>;
+            }>;
+          }>;
+        };
+      };
+    }
+  >,
+  gcsUri?: string
+) {
+  if (gcsUri && files[gcsUri]) {
+    return files[gcsUri];
+  }
+  const firstKey = Object.keys(files)[0];
+  return firstKey ? files[firstKey] : undefined;
+}
+
+function buildTurnsFromWords(alternative: {
+  words?: Array<{
+    word?: string;
+    text?: string;
+    speakerLabel?: string | number;
+    speakerTag?: string | number;
+  }>;
+} | null | undefined): SpeechDiarizedTurn[] {
+  const words = Array.isArray(alternative?.words) ? alternative.words : [];
+  if (words.length === 0) {
+    return [];
+  }
+
+  const turns: SpeechDiarizedTurn[] = [];
+  let currentSpeaker: SpeechDiarizedSpeaker | null = null;
+  let currentText = "";
+
+  const flush = () => {
+    const text = currentText.trim();
+    if (!text || !currentSpeaker) {
+      return;
+    }
+    pushTurn(turns, { speaker: currentSpeaker, text });
+    currentText = "";
+  };
+
+  for (const row of words) {
+    const token = String(row?.word ?? row?.text ?? "").trim();
+    if (!token) {
+      continue;
+    }
+    const speaker = normalizeSpeakerId(row?.speakerLabel ?? row?.speakerTag);
+    if (currentSpeaker === null) {
+      currentSpeaker = speaker;
+    } else if (speaker !== currentSpeaker) {
+      flush();
+      currentSpeaker = speaker;
+    }
+    currentText = appendToken(currentText, token);
+  }
+  flush();
+  return turns;
+}
+
+function normalizeSpeakerId(value: unknown): SpeechDiarizedSpeaker {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "unknown";
+  }
+  const num = Number(text);
+  if (!Number.isFinite(num)) {
+    return "unknown";
+  }
+  if (num === 1) {
+    return 1;
+  }
+  if (num === 2) {
+    return 2;
+  }
+  return "unknown";
+}
+
+function pushTurn(turns: SpeechDiarizedTurn[], turn: SpeechDiarizedTurn) {
+  const text = String(turn.text ?? "").trim();
+  if (!text) {
+    return;
+  }
+  const last = turns[turns.length - 1];
+  if (last && last.speaker === turn.speaker) {
+    last.text = `${last.text} ${text}`.replace(/\s+/g, " ").trim();
+    return;
+  }
+  turns.push({ speaker: turn.speaker, text });
+}
+
+function appendToken(current: string, token: string) {
+  if (!current) {
+    return token;
+  }
+  if (/^[,.;:!?)]/.test(token)) {
+    return `${current}${token}`;
+  }
+  if (/^['’]/.test(token)) {
+    return `${current}${token}`;
+  }
+  return `${current} ${token}`;
 }

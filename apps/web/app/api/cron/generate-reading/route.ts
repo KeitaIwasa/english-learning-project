@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createAdminSupabaseClient, executeReadingGeneration, resolveTargetDate } from "@/app/api/reading/_jobs";
+import { executeReadingGeneration, resolveTargetDate } from "@/app/api/reading/_jobs";
+import { createAdminSupabaseClient } from "@/lib/service";
 
 export async function POST(request: Request) {
   try {

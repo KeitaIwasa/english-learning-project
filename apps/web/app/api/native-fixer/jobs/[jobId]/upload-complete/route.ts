@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthUser } from "../../../_utils";
 import { checkGcsObjectExists, getGoogleAccessToken, parseGoogleServiceAccount } from "@/lib/google-cloud";
-import { getServiceEnv } from "@/lib/service";
+import { enqueueWorkerTask } from "@/lib/cloud-tasks";
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -94,16 +94,9 @@ export async function POST(_request: Request, context: RouteContext) {
 
 async function triggerSpeechFixerOnce() {
   try {
-    const { supabaseUrl, serviceRoleKey } = getServiceEnv();
-    await fetch(`${supabaseUrl}/functions/v1/speech-fixer-process`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey
-      },
-      body: JSON.stringify({ limit: 1 }),
-      signal: AbortSignal.timeout(8_000)
+    await enqueueWorkerTask({
+      kind: "speech_fixer",
+      payload: { limit: 1, trigger: "upload_complete" }
     });
   } catch (error) {
     console.error(`[native-fixer] failed to trigger speech-fixer-process immediately: ${String(error)}`);

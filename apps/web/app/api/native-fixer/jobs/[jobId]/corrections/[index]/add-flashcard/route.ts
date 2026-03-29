@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { speechFixAddFlashcardSchema } from "@/lib/schemas";
 import { normalizeCorrections, requireAuthUser } from "../../../../../_utils";
+import { addFlashcard } from "@/lib/flashcards";
+import { createAdminSupabaseClient } from "@/lib/service";
 
 type RouteContext = {
   params: Promise<{ jobId: string; index: string }>;
@@ -11,13 +13,6 @@ export async function POST(request: Request, context: RouteContext) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const parsed = speechFixAddFlashcardSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -52,41 +47,20 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Already added", flashcardId: target.addedFlashcardId }, { status: 409 });
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !anonKey) {
-    return NextResponse.json({ error: "Missing Supabase env vars" }, { status: 500 });
-  }
-
-  const upstream = await fetch(`${supabaseUrl}/functions/v1/flashcards-add`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: anonKey
-    },
-    body: JSON.stringify({
+  let flashcardId = "";
+  let duplicated = false;
+  try {
+    const result = await addFlashcard({
+      serviceClient: createAdminSupabaseClient(),
+      userId: user.id,
       en: parsed.data.en,
       ja: parsed.data.ja || undefined,
       source: "web"
-    })
-  });
-
-  const rawText = await upstream.text();
-  if (!upstream.ok) {
-    return NextResponse.json({ error: rawText || "flashcards-add failed" }, { status: upstream.status });
-  }
-
-  let json: { id?: string; duplicated?: boolean };
-  try {
-    json = JSON.parse(rawText) as { id?: string; duplicated?: boolean };
-  } catch {
-    return NextResponse.json({ error: "Invalid flashcards-add response" }, { status: 502 });
-  }
-
-  const flashcardId = typeof json.id === "string" ? json.id : "";
-  if (!flashcardId) {
-    return NextResponse.json({ error: "flashcards-add did not return id" }, { status: 502 });
+    });
+    flashcardId = result.id;
+    duplicated = Boolean(result.duplicated);
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 
   corrections[correctionIndex] = {
@@ -109,6 +83,6 @@ export async function POST(request: Request, context: RouteContext) {
   return NextResponse.json({
     ok: true,
     flashcardId,
-    duplicated: Boolean(json.duplicated)
+    duplicated
   });
 }

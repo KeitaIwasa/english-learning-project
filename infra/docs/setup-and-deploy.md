@@ -1,11 +1,52 @@
 # Setup and Deploy Guide
 
+## 0. Production deploy (quick runbook)
+
+Run from repository root:
+
+```bash
+# 1) Supabase DB
+npm run deploy:supabase
+
+# 2) Vercel (always with explicit scope)
+cd apps/web
+npx vercel link --yes --scope keitaiwasas-projects
+npx vercel --prod --yes --scope keitaiwasas-projects
+cd ../..
+
+# 3) Cloud Run workers (project: gen-lang-client-0926290743)
+gcloud run deploy english-native-fixer \
+  --image=us-west1-docker.pkg.dev/ai-studio-registry-prod/ai-studio/deploy-container@sha256:ad9b1d5c6cc21099fa078e6593ef3c70cf20fb84545d6dffd245211c6dcc79eb \
+  --region=us-west1 \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --quiet
+
+gcloud run deploy speaker-diarization-transcriber \
+  --image=us-docker.pkg.dev/cloudrun/container/aistudio/applet-proxy \
+  --region=us-west1 \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --quiet
+```
+
+Post-deploy check:
+
+```bash
+gcloud run services list \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --format='table(metadata.name,metadata.labels."cloud.googleapis.com/location",status.url,status.latestReadyRevisionName)'
+```
+
 ## 1. Prerequisites
 
 - Node.js `>=22.12.0` (recommended via `nvm`)
 - npm `>=11`
 - Supabase project (Free plan)
 - Vercel account (Hobby plan)
+- Google Cloud SDK (`gcloud`)
+- GCP project: `gen-lang-client-0926290743`
 - Gemini API key (Developer API)
 
 ### Install CLIs (optional)
@@ -101,7 +142,51 @@ npx vercel link --yes --scope keitaiwasas-projects
 npx vercel --prod --yes --scope keitaiwasas-projects
 ```
 
-## 5. Daily job setup (Supabase SQL Editor)
+## 5. Cloud Run worker deploy (gcloud)
+
+This repository currently uses the following Cloud Run services in `us-west1`:
+
+- `english-native-fixer`
+- `speaker-diarization-transcriber`
+
+Check current services:
+
+```bash
+gcloud run services list \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --format='table(metadata.name,metadata.labels."cloud.googleapis.com/location",status.url,status.latestReadyRevisionName)'
+```
+
+Describe current image for a service:
+
+```bash
+gcloud run services describe english-native-fixer \
+  --region=us-west1 \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --format='yaml(spec.template.spec.containers[0].image,status.latestReadyRevisionName)'
+```
+
+Deploy commands:
+
+```bash
+gcloud run deploy english-native-fixer \
+  --image=us-west1-docker.pkg.dev/ai-studio-registry-prod/ai-studio/deploy-container@sha256:ad9b1d5c6cc21099fa078e6593ef3c70cf20fb84545d6dffd245211c6dcc79eb \
+  --region=us-west1 \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --quiet
+
+gcloud run deploy speaker-diarization-transcriber \
+  --image=us-docker.pkg.dev/cloudrun/container/aistudio/applet-proxy \
+  --region=us-west1 \
+  --platform=managed \
+  --project=gen-lang-client-0926290743 \
+  --quiet
+```
+
+## 6. Daily job setup (Supabase SQL Editor)
 
 Run SQL with your actual project URL and service role key in headers.
 
@@ -136,7 +221,7 @@ select cron.schedule(
 
 (UTC基準: 20:50 UTC = 05:50 JST, 21:00 UTC = 06:00 JST)
 
-## 6. Chrome extension setup
+## 7. Chrome extension setup
 
 ```bash
 cp apps/extension/src/config.example.js apps/extension/src/config.js
@@ -144,7 +229,7 @@ cp apps/extension/src/config.example.js apps/extension/src/config.js
 
 Fill values and load `apps/extension` via `chrome://extensions` (Developer mode).
 
-## 7. Local run
+## 8. Local run
 
 ```bash
 npm run dev:web

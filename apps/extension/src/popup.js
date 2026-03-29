@@ -1,4 +1,4 @@
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
+import { SUPABASE_URL, WEB_APP_URL } from "./config.js";
 
 const enInput = document.getElementById("enInput");
 const jaInput = document.getElementById("jaInput");
@@ -87,12 +87,11 @@ async function addFlashcard() {
     return;
   }
 
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/flashcards-add`, {
+  const response = await fetch(`${WEB_APP_URL}/api/extension/flashcards`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      apikey: SUPABASE_ANON_KEY
+      Authorization: `Bearer ${accessToken}`
     },
     body: JSON.stringify({
       en,

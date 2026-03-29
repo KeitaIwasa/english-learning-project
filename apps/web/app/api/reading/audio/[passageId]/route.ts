@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeAudioForPlayback } from "@/lib/audio-format";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 type RouteContext = {
@@ -33,12 +34,16 @@ export async function GET(_: Request, context: RouteContext) {
       return NextResponse.json({ error: "Audio not found" }, { status: 404 });
     }
 
-    const audioBytes = Buffer.from(data.audio_base64, "base64");
+    const normalized = normalizeAudioForPlayback({
+      audioBase64: data.audio_base64,
+      mimeType: data.audio_mime_type ?? "audio/wav"
+    });
+    const audioBytes = Buffer.from(normalized.audioBase64, "base64");
     return new Response(audioBytes, {
       status: 200,
       headers: {
-        "Content-Type": data.audio_mime_type ?? "audio/wav",
-        "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400"
+        "Content-Type": normalized.mimeType,
+        "Cache-Control": "private, no-store"
       }
     });
   } catch (error) {

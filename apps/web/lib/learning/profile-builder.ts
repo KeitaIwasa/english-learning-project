@@ -1,7 +1,8 @@
-import { buildLearningProfile, type FlashcardStat } from "./learning.ts";
+import { buildLearningProfile, type FlashcardStat } from "@/lib/learning/learning";
+import { createAdminSupabaseClient } from "@/lib/service";
 
 export async function computeLearningProfile(params: {
-  serviceClient: any;
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>;
   userId: string;
   lookbackDays: number;
   targetDate: string;

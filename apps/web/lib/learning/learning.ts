@@ -43,44 +43,6 @@ export function buildLearningProfile(cards: FlashcardStat[], grammarSignals: str
   };
 }
 
-export function chooseTargets(profile: LearningProfile) {
-  const reviewCount = Math.max(1, Math.round(profile.reviewTargets.length * 0.7));
-  const freshCount = Math.max(1, Math.round(reviewCount * (3 / 7)));
-  return {
-    review: profile.reviewTargets.slice(0, reviewCount),
-    fresh: profile.newCandidates.slice(0, freshCount)
-  };
-}
-
-export function calcCoverage(requiredTargets: string[], usedTargets: string[]): number {
-  if (requiredTargets.length === 0) {
-    return 1;
-  }
-
-  const usedSet = new Set(usedTargets.map((x) => x.trim().toLowerCase()));
-  const hit = requiredTargets.filter((target) => usedSet.has(target.trim().toLowerCase()));
-  return hit.length / requiredTargets.length;
-}
-
-export function estimateSimilarity(a: string, b: string): number {
-  const toSet = (value: string) => new Set(value.toLowerCase().split(/\W+/).filter(Boolean));
-  const left = toSet(a);
-  const right = toSet(b);
-
-  if (left.size === 0 || right.size === 0) {
-    return 0;
-  }
-
-  let same = 0;
-  for (const token of left) {
-    if (right.has(token)) {
-      same += 1;
-    }
-  }
-
-  return same / new Set([...left, ...right]).size;
-}
-
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
 }

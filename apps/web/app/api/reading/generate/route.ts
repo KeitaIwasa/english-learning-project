@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createAdminSupabaseClient } from "@/lib/service";
 import {
-  createAdminSupabaseClient,
   executeReadingGeneration,
   getLatestJobForDate,
-  markTimedOutProcessingJobs,
+  markTimedOutActiveJobs,
   resolveTargetDate
 } from "@/app/api/reading/_jobs";
 
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const targetDate = resolveTargetDate(new URL(request.url).searchParams.get("date"));
     const adminClient = createAdminSupabaseClient();
 
-    await markTimedOutProcessingJobs({
+    await markTimedOutActiveJobs({
       adminClient,
       userId: auth.user.id,
       targetDate

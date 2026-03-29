@@ -1,15 +1,15 @@
-import { corsHeaders } from "../_shared/cors.ts";
-import { appEnv } from "../_shared/env.ts";
-import { createServiceClient } from "../_shared/supabase.ts";
+import { appEnv } from "@/lib/app-env";
 import {
   deleteFromGcs,
   extractTranscriptFromSpeechBatchResponse,
   getGoogleAccessToken,
   getGoogleProjectIdFromServiceAccountJson,
   getSpeechBatchOperation,
+  parseGoogleServiceAccount,
   startSpeechBatchRecognize
-} from "../_shared/google-cloud.ts";
-import { buildSpeechFixCorrections } from "../_shared/speech-fixer.ts";
+} from "@/lib/google-cloud";
+import { buildSpeechFixCorrections } from "@/lib/speech-fixer";
+import { createAdminSupabaseClient } from "@/lib/service";
 
 type SpeechFixJobRow = {
   id: string;
@@ -42,36 +42,22 @@ const MAX_BATCH_DEFAULT = 3;
 const MIN_TRANSCRIPT_LENGTH_FOR_LARGE_FILE = 80;
 const LARGE_FILE_BYTES = 2_000_000;
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+export async function runSpeechFixerProcess(params: {
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>;
+  limit?: number;
+}) {
+  const limit = Math.max(1, Math.min(10, Number(params.limit ?? MAX_BATCH_DEFAULT)));
+  const queuedResult = await runQueuedJobs(params.serviceClient, limit);
+  const processingResult = await runProcessingJobs(params.serviceClient, limit);
 
-  try {
-    const authHeader = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
-    if (!isAuthorizedServiceRole(authHeader)) {
-      return json({ error: "Unauthorized" }, 401);
-    }
+  return {
+    ok: true,
+    processing: processingResult,
+    queued: queuedResult
+  };
+}
 
-    const serviceClient = createServiceClient();
-    const payload = await readBody(req);
-    const limit = Math.max(1, Math.min(10, Number(payload?.limit ?? MAX_BATCH_DEFAULT)));
-
-    const queuedResult = await runQueuedJobs(serviceClient, limit);
-    const processingResult = await runProcessingJobs(serviceClient, limit);
-
-    return json({
-      ok: true,
-      processing: processingResult,
-      queued: queuedResult
-    });
-  } catch (error) {
-    console.error(error);
-    return json({ error: String(error) }, 500);
-  }
-});
-
-async function runProcessingJobs(serviceClient: ReturnType<typeof createServiceClient>, limit: number) {
+async function runProcessingJobs(serviceClient: ReturnType<typeof createAdminSupabaseClient>, limit: number) {
   const { data, error } = await serviceClient
     .from("speech_fix_jobs")
     .select("*")
@@ -99,7 +85,7 @@ async function runProcessingJobs(serviceClient: ReturnType<typeof createServiceC
   return { total: (data ?? []).length, completed, pending, failed };
 }
 
-async function runQueuedJobs(serviceClient: ReturnType<typeof createServiceClient>, limit: number) {
+async function runQueuedJobs(serviceClient: ReturnType<typeof createAdminSupabaseClient>, limit: number) {
   const { data, error } = await serviceClient
     .from("speech_fix_jobs")
     .select("*")
@@ -124,7 +110,7 @@ async function runQueuedJobs(serviceClient: ReturnType<typeof createServiceClien
   return { total: (data ?? []).length, started, failed };
 }
 
-async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow) {
+async function startQueuedJob(serviceClient: ReturnType<typeof createAdminSupabaseClient>, job: SpeechFixJobRow) {
   const currentStats = getStats(job);
 
   try {
@@ -151,12 +137,12 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
       return false;
     }
 
-    const serviceAccountJson = appEnv.googleApplicationCredentialsJson();
+    const serviceAccount = parseGoogleServiceAccount(appEnv.googleApplicationCredentialsJson());
     const googleAccessToken = await getGoogleAccessToken({
-      serviceAccountJson,
+      serviceAccount,
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     });
-    const projectId = getGoogleProjectIdFromServiceAccountJson(serviceAccountJson);
+    const projectId = getGoogleProjectIdFromServiceAccountJson(appEnv.googleApplicationCredentialsJson());
     const sttLocation = appEnv.googleSpeechV2Location();
     const sttModel = appEnv.googleSpeechModel();
 
@@ -209,7 +195,7 @@ async function startQueuedJob(serviceClient: ReturnType<typeof createServiceClie
   }
 }
 
-async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow) {
+async function finalizeProcessingJob(serviceClient: ReturnType<typeof createAdminSupabaseClient>, job: SpeechFixJobRow) {
   const stats = getStats(job);
   const operationName = typeof stats.sttOperationName === "string" ? stats.sttOperationName : "";
   if (!operationName) {
@@ -221,7 +207,7 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
     const sttLocation = typeof stats.sttLocation === "string" ? stats.sttLocation : appEnv.googleSpeechV2Location();
     const gcsUri = typeof stats.gcsUri === "string" ? stats.gcsUri : null;
     const accessToken = await getGoogleAccessToken({
-      serviceAccountJson: appEnv.googleApplicationCredentialsJson(),
+      serviceAccount: parseGoogleServiceAccount(appEnv.googleApplicationCredentialsJson()),
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     });
     const operation = await getSpeechBatchOperation({
@@ -236,16 +222,11 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
 
     if (operation.error?.message) {
       const failedAt = new Date().toISOString();
-      await failJob(
-        serviceClient,
-        job,
-        `Speech-to-Text failed: ${operation.error.message}`,
-        {
-          ...stats,
-          sttCompletedAt: failedAt,
-          sttError: operation.error.message
-        }
-      );
+      await failJob(serviceClient, job, `Speech-to-Text failed: ${operation.error.message}`, {
+        ...stats,
+        sttCompletedAt: failedAt,
+        sttError: operation.error.message
+      });
       return "failed" as const;
     }
 
@@ -332,7 +313,7 @@ async function finalizeProcessingJob(serviceClient: ReturnType<typeof createServ
 }
 
 async function failJob(
-  serviceClient: ReturnType<typeof createServiceClient>,
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>,
   job: SpeechFixJobRow,
   reason: string,
   nextStats?: JobStats
@@ -352,7 +333,7 @@ async function failJob(
   await cleanupTempAudio(serviceClient, nextStats ? { ...job, stats_json: nextStats } : job);
 }
 
-async function cleanupTempAudio(serviceClient: ReturnType<typeof createServiceClient>, job: SpeechFixJobRow) {
+async function cleanupTempAudio(_serviceClient: ReturnType<typeof createAdminSupabaseClient>, job: SpeechFixJobRow) {
   const stats = getStats(job);
   const gcsBucket = normalizeGcsField(job.gcs_bucket || (typeof stats.gcsBucket === "string" ? stats.gcsBucket : ""));
   const gcsObjectName = normalizeGcsField(job.gcs_object_name || (typeof stats.gcsObjectName === "string" ? stats.gcsObjectName : ""));
@@ -360,7 +341,7 @@ async function cleanupTempAudio(serviceClient: ReturnType<typeof createServiceCl
   if (gcsBucket && gcsObjectName) {
     try {
       const accessToken = await getGoogleAccessToken({
-        serviceAccountJson: appEnv.googleApplicationCredentialsJson(),
+        serviceAccount: parseGoogleServiceAccount(appEnv.googleApplicationCredentialsJson()),
         scopes: ["https://www.googleapis.com/auth/cloud-platform"]
       });
       await deleteFromGcs({
@@ -419,76 +400,9 @@ function isLowQualityTranscript(
   }
   return false;
 }
+
 function normalizeGcsField(value: unknown): string {
   return String(value ?? "")
     .replace(/\\n/g, "")
     .trim();
-}
-
-async function readBody(req: Request): Promise<Record<string, unknown> | null> {
-  if (req.method !== "POST") {
-    return null;
-  }
-  try {
-    return (await req.json()) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function json(payload: unknown, status = 200) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json"
-    }
-  });
-}
-
-function isAuthorizedServiceRole(token: string): boolean {
-  if (!token) {
-    return false;
-  }
-
-  const configured = appEnv.supabaseServiceRoleKey();
-  if (token === configured) {
-    return true;
-  }
-
-  const payload = parseJwtPayload(token);
-  if (!payload || payload.role !== "service_role") {
-    return false;
-  }
-
-  const expectedRef = extractProjectRef(appEnv.supabaseUrl());
-  if (!expectedRef) {
-    return false;
-  }
-  return payload.ref === expectedRef;
-}
-
-function parseJwtPayload(token: string): { role?: string; ref?: string } | null {
-  const parts = token.split(".");
-  if (parts.length < 2) {
-    return null;
-  }
-  try {
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-    const decoded = atob(padded);
-    const parsed = JSON.parse(decoded) as { role?: string; ref?: string };
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function extractProjectRef(supabaseUrl: string): string {
-  try {
-    const host = new URL(supabaseUrl).hostname;
-    return host.split(".")[0] ?? "";
-  } catch {
-    return "";
-  }
 }

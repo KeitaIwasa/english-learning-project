@@ -1,12 +1,13 @@
-import { generateWithGemini } from "./gemini.ts";
-import { appEnv } from "./env.ts";
+import { appEnv } from "@/lib/app-env";
+import { generateWithGemini } from "@/lib/gemini";
+import { createAdminSupabaseClient } from "@/lib/service";
 
 function normalizeEnglish(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 export async function addFlashcard(params: {
-  serviceClient: any;
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>;
   userId: string;
   en: string;
   ja?: string;
@@ -90,4 +91,11 @@ export async function addFlashcard(params: {
     nextReviewAt: nextReviewAt.toISOString(),
     duplicated: false
   };
+}
+
+export function isValidServiceRoleToken(token: string) {
+  if (!token) {
+    return false;
+  }
+  return token === appEnv.supabaseServiceRoleKey();
 }

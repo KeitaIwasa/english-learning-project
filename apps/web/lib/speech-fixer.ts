@@ -1,6 +1,6 @@
-import { generateWithGemini } from "./gemini.ts";
-import { appEnv } from "./env.ts";
-import type { SpeechDiarizedTurn } from "./google-cloud.ts";
+import { generateWithGemini } from "@/lib/gemini";
+import { appEnv } from "@/lib/app-env";
+import type { SpeechDiarizedTurn } from "@/lib/google-cloud";
 
 export type SpeechFixSpeaker = 1 | 2 | "unknown";
 
