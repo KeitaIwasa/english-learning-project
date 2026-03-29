@@ -49,7 +49,7 @@ type ExecuteReadingGenerationResult =
       status: number;
     };
 
-const PROCESSING_TIMEOUT_MS = 15 * 60 * 1000;
+const ACTIVE_JOB_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function resolveTargetDate(rawDate: unknown) {
   if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
@@ -58,15 +58,15 @@ export function resolveTargetDate(rawDate: unknown) {
   return new Date().toISOString().slice(0, 10);
 }
 
-export async function markTimedOutProcessingJobs(params: {
+export async function markTimedOutActiveJobs(params: {
   adminClient: ReturnType<typeof createAdminSupabaseClient>;
   userId: string;
   targetDate: string;
 }) {
   const nowIso = new Date().toISOString();
-  const cutoffIso = new Date(Date.now() - PROCESSING_TIMEOUT_MS).toISOString();
+  const cutoffIso = new Date(Date.now() - ACTIVE_JOB_TIMEOUT_MS).toISOString();
 
-  const { error } = await params.adminClient
+  const processingTimeout = await params.adminClient
     .from("reading_generation_jobs")
     .update({
       status: "failed",
@@ -78,8 +78,24 @@ export async function markTimedOutProcessingJobs(params: {
     .eq("status", "processing")
     .lt("started_at", cutoffIso);
 
-  if (error) {
-    throw error;
+  if (processingTimeout.error) {
+    throw processingTimeout.error;
+  }
+
+  const queuedTimeout = await params.adminClient
+    .from("reading_generation_jobs")
+    .update({
+      status: "failed",
+      error_message: "Queue wait timed out after 15 minutes",
+      completed_at: nowIso
+    })
+    .eq("user_id", params.userId)
+    .eq("target_date", params.targetDate)
+    .eq("status", "queued")
+    .lt("created_at", cutoffIso);
+
+  if (queuedTimeout.error) {
+    throw queuedTimeout.error;
   }
 }
 
@@ -127,7 +143,7 @@ async function getActiveJob(params: {
 }
 
 export async function executeReadingGeneration(params: ExecuteReadingGenerationParams): Promise<ExecuteReadingGenerationResult> {
-  await markTimedOutProcessingJobs({
+  await markTimedOutActiveJobs({
     adminClient: params.adminClient,
     userId: params.userId,
     targetDate: params.targetDate

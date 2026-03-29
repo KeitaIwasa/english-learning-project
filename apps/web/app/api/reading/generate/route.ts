@@ -4,7 +4,7 @@ import { createAdminSupabaseClient } from "@/lib/service";
 import {
   executeReadingGeneration,
   getLatestJobForDate,
-  markTimedOutProcessingJobs,
+  markTimedOutActiveJobs,
   resolveTargetDate
 } from "@/app/api/reading/_jobs";
 
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const targetDate = resolveTargetDate(new URL(request.url).searchParams.get("date"));
     const adminClient = createAdminSupabaseClient();
 
-    await markTimedOutProcessingJobs({
+    await markTimedOutActiveJobs({
       adminClient,
       userId: auth.user.id,
       targetDate

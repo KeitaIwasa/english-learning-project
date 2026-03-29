@@ -35,8 +35,9 @@ npx vercel --prod --yes --scope keitaiwasas-projects
 cd ../..
 
 # Cloud Run (gcloud)
-gcloud run deploy english-native-fixer --image=us-west1-docker.pkg.dev/ai-studio-registry-prod/ai-studio/deploy-container@sha256:ad9b1d5c6cc21099fa078e6593ef3c70cf20fb84545d6dffd245211c6dcc79eb --region=us-west1 --platform=managed --project=gen-lang-client-0926290743 --quiet
-gcloud run deploy speaker-diarization-transcriber --image=us-docker.pkg.dev/cloudrun/container/aistudio/applet-proxy --region=us-west1 --platform=managed --project=gen-lang-client-0926290743 --quiet
+# NOTE: Use explicit account to avoid permission issues with default service accounts.
+gcloud run deploy english-native-fixer --image=us-west1-docker.pkg.dev/ai-studio-registry-prod/ai-studio/deploy-container@sha256:ad9b1d5c6cc21099fa078e6593ef3c70cf20fb84545d6dffd245211c6dcc79eb --region=us-west1 --platform=managed --project=gen-lang-client-0926290743 --account=keita030909@gmail.com --quiet
+gcloud run deploy speaker-diarization-transcriber --image=us-docker.pkg.dev/cloudrun/container/aistudio/applet-proxy --region=us-west1 --platform=managed --project=gen-lang-client-0926290743 --account=keita030909@gmail.com --quiet
 ```
 
 Deployment and setup details are in `infra/docs/setup-and-deploy.md`.
