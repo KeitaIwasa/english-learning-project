@@ -1,11 +1,11 @@
 import { appEnv } from "@/lib/app-env";
-import { generateWithGemini, synthesizeSpeechWithGemini, type GeminiContent } from "@/lib/gemini";
 import {
   buildReadingConversation,
   type ReadingChatMessage,
   type ReadingFlashcard,
   type ReadingFlashcardReview
-} from "@/lib/reading-conversation";
+} from "@english/shared";
+import { generateWithGemini, synthesizeSpeechWithGemini, type GeminiContent } from "@/lib/gemini";
 import { createAdminSupabaseClient } from "@/lib/service";
 
 const MAX_TRY = 3;

@@ -26,6 +26,9 @@
       "@/*": [
         "./*"
       ],
+      "@english/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
       "@english/shared/*": [
         "../../packages/shared/src/*"
       ]
