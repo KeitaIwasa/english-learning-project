@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { speechFixJobTitleUpdateSchema } from "@english/shared";
+import { speechFixJobTitleUpdateSchema } from "@/lib/shared";
 import { getSpeechFixJobDetail, updateSpeechFixJobTitle } from "@/lib/native-fixer-jobs";
 import { jsonError, parseJsonRequest, requireRouteUser } from "@/lib/server/route-helpers";
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { speechFixJobCreateSchema } from "@english/shared";
+import { speechFixJobCreateSchema } from "@/lib/shared";
 import { createSpeechFixJob, listSpeechFixJobs } from "@/lib/native-fixer-jobs";
 import { jsonError, parseJsonRequest, requireRouteUser } from "@/lib/server/route-helpers";
 

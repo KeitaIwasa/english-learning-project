@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { speechFixAddFlashcardSchema } from "@english/shared";
+import { speechFixAddFlashcardSchema } from "@/lib/shared";
 import { addSpeechFixCorrectionFlashcard } from "@/lib/native-fixer-jobs";
 import { jsonError, parseJsonRequest, requireRouteUserWithAdmin } from "@/lib/server/route-helpers";
 

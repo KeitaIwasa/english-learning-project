@@ -1,4 +1,4 @@
-import { buildAskContextTurns, type ChatMode } from "@english/shared";
+import { buildAskContextTurns, type ChatMode } from "@/lib/shared";
 import { createAdminSupabaseClient } from "@/lib/service";
 import type { GeminiContent } from "@/lib/gemini";
 

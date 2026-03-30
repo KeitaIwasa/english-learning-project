@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chatRouterRequestSchema } from "@english/shared";
+import { chatRouterRequestSchema } from "@/lib/shared";
 import {
   createAskContext,
   ensureChatThread,

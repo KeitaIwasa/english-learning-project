@@ -1,4 +1,4 @@
-import { nextSm2 } from "@english/shared";
+import { nextSm2 } from "@/lib/shared";
 import {
   buildReviewQueue,
   type FlashcardReviewRow,

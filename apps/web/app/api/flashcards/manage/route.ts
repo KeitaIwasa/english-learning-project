@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { flashcardManageDeleteSchema, flashcardManageUpdateSchema } from "@english/shared";
+import { flashcardManageDeleteSchema, flashcardManageUpdateSchema } from "@/lib/shared";
 import { deleteManagedFlashcard, listManagedFlashcards, updateManagedFlashcard } from "@/lib/flashcards-manage-service";
 import { jsonError, parseJsonRequest, requireRouteUser } from "@/lib/server/route-helpers";
 

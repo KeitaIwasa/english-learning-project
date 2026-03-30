@@ -4,7 +4,7 @@ import {
   type ReadingChatMessage,
   type ReadingFlashcard,
   type ReadingFlashcardReview
-} from "@english/shared";
+} from "@/lib/shared";
 import { generateWithGemini, synthesizeSpeechWithGemini, type GeminiContent } from "@/lib/gemini";
 import { createAdminSupabaseClient } from "@/lib/service";
 

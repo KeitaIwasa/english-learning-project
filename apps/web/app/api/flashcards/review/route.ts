@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { flashcardReviewRequestSchema } from "@english/shared";
+import { flashcardReviewRequestSchema } from "@/lib/shared";
 import { loadReviewQueue, submitFlashcardReview } from "@/lib/flashcards-review-service";
 import { jsonError, parseJsonRequest, requireRouteUserWithAdmin } from "@/lib/server/route-helpers";
 
