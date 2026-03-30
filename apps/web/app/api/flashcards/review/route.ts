@@ -59,7 +59,10 @@ export async function POST(request: Request) {
       throw cardError;
     }
     if (!card) {
-      return NextResponse.json({ error: "Flashcard not found" }, { status: 404 });
+      // Treat missing cards as an idempotent no-op. This can happen when a card
+      // was deleted after the review queue was loaded but before submit.
+      const nextDueAt = await findNextDueAt(serviceClient, userId);
+      return NextResponse.json({ ok: true, skipped: true, flashcardId: parsed.data.flashcardId, nextDueAt });
     }
 
     const { data: latestReview, error: latestReviewError } = await serviceClient
@@ -100,14 +103,38 @@ export async function POST(request: Request) {
       throw insertError;
     }
 
+    const nextDueAt = await findNextDueAt(serviceClient, userId);
+
     return NextResponse.json({
       ok: true,
       nextReviewAt: nextReviewAt.toISOString(),
-      flashcardId: parsed.data.flashcardId
+      flashcardId: parsed.data.flashcardId,
+      nextDueAt
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
+}
+
+async function findNextDueAt(
+  serviceClient: ReturnType<typeof createAdminSupabaseClient>,
+  userId: string
+): Promise<string | null> {
+  const nowIso = new Date().toISOString();
+  const { data, error } = await serviceClient
+    .from("flashcard_reviews")
+    .select("next_review_at")
+    .eq("user_id", userId)
+    .gt("next_review_at", nowIso)
+    .order("next_review_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.next_review_at ?? null;
 }
 
 async function loadQueue(

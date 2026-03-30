@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const authFile = "tests/.auth/user.json";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+const useLocalWebServer = /^https?:\/\/localhost(?::\d+)?$/i.test(baseURL);
 
 export default defineConfig({
   testDir: "./tests",
@@ -10,15 +12,17 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL,
     trace: "on-first-retry"
   },
-  webServer: {
-    command: "npm run dev:web -- --hostname localhost --port 3000",
-    url: "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 120_000
-  },
+  webServer: useLocalWebServer
+    ? {
+        command: "npm run dev:web -- --hostname localhost --port 3000",
+        url: "http://localhost:3000",
+        reuseExistingServer: true,
+        timeout: 120_000
+      }
+    : undefined,
   projects: [
     {
       name: "chromium",

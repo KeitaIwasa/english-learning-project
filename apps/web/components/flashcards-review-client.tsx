@@ -19,6 +19,7 @@ type QueueResponse = {
 
 type ReviewResponse = {
   ok?: boolean;
+  skipped?: boolean;
   nextReviewAt?: string;
   flashcardId?: string;
   nextDueAt?: string | null;
@@ -28,6 +29,7 @@ type ReviewResponse = {
 type ReviewAttempt = {
   flashcardId: string;
   remembered: boolean;
+  card: QueueItem;
 };
 
 type ReviewSaveError = {
@@ -219,7 +221,7 @@ export function FlashcardsReviewClient() {
 
   const persistReview = async (attempt: ReviewAttempt) => {
     if (inFlightReviewIdsRef.current.has(attempt.flashcardId)) {
-      return;
+      return false;
     }
 
     inFlightReviewIdsRef.current.add(attempt.flashcardId);
@@ -236,18 +238,34 @@ export function FlashcardsReviewClient() {
       const json = (await res.json()) as ReviewResponse;
 
       if (!res.ok || !json.ok) {
+        setQueue((prev) => {
+          if (prev.some((item) => item.id === attempt.flashcardId)) {
+            return prev;
+          }
+          return [attempt.card, ...prev];
+        });
         setReviewSaveError({
           message: typeof json.error === "string" ? json.error : "復習結果の保存に失敗しました。",
           attempt
         });
-        return;
+        return false;
       }
-      setNextDueAt(typeof json.nextDueAt === "string" ? json.nextDueAt : null);
+      if (typeof json.nextDueAt === "string" || json.nextDueAt === null) {
+        setNextDueAt(json.nextDueAt);
+      }
+      return true;
     } catch (error) {
+      setQueue((prev) => {
+        if (prev.some((item) => item.id === attempt.flashcardId)) {
+          return prev;
+        }
+        return [attempt.card, ...prev];
+      });
       setReviewSaveError({
         message: `復習結果の保存に失敗しました: ${String(error)}`,
         attempt
       });
+      return false;
     } finally {
       inFlightReviewIdsRef.current.delete(attempt.flashcardId);
     }
@@ -258,7 +276,7 @@ export function FlashcardsReviewClient() {
       return;
     }
 
-    const attempt: ReviewAttempt = { flashcardId: current.id, remembered };
+    const attempt: ReviewAttempt = { flashcardId: current.id, remembered, card: current };
     if (inFlightReviewIdsRef.current.has(attempt.flashcardId)) {
       return;
     }
