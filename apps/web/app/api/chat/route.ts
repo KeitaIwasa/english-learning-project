@@ -1,82 +1,64 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { chatRouterRequestSchema } from "@/lib/schemas";
+import { chatRouterRequestSchema } from "@english/shared";
+import {
+  createAskContext,
+  ensureChatThread,
+  getChatHistory,
+  parseChatFlashcardMessage,
+  resolveHistoryLimit
+} from "@/lib/chat-service";
 import { createAdminSupabaseClient } from "@/lib/service";
 import { addFlashcard } from "@/lib/flashcards";
 import { appEnv } from "@/lib/app-env";
 import { generateWithGemini, streamWithGemini, type GeminiContent } from "@/lib/gemini";
-import { buildAskContextTurns } from "@/lib/chat-context";
+import { jsonError, parseJsonRequest, requireRouteUser } from "@/lib/server/route-helpers";
 
-const DEFAULT_HISTORY_LIMIT = 10;
-const MAX_HISTORY_LIMIT = 50;
-
-type ChatMode = "translate" | "ask" | "add_flashcard";
 type AskStreamDonePayload = { reply: string; threadId: string };
 const ASK_CONTEXT_HISTORY_TURNS = 5;
 const ASK_CONTEXT_MAX_CHARS = 10000;
 
 export async function GET(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const { data: auth } = await supabase.auth.getUser();
-
-  if (!auth.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireRouteUser();
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { searchParams } = new URL(request.url);
-  const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
   const before = searchParams.get("before");
-  const limit =
-    Number.isFinite(limitParam) && limitParam > 0
-      ? Math.min(limitParam, MAX_HISTORY_LIMIT)
-      : DEFAULT_HISTORY_LIMIT;
+  const limit = resolveHistoryLimit(searchParams.get("limit"));
 
   if (before && Number.isNaN(Date.parse(before))) {
-    return NextResponse.json({ error: "Invalid before cursor" }, { status: 400 });
+    return jsonError("Invalid before cursor", 400);
   }
 
-  let query = supabase
-    .from("chat_messages")
-    .select("id, thread_id, role, mode, content, created_at")
-    .eq("user_id", auth.user.id)
-    .order("created_at", { ascending: false })
-    .limit(limit + 1);
-
-  if (before) {
-    query = query.lt("created_at", before);
+  try {
+    return NextResponse.json(
+      await getChatHistory({
+        supabase: auth.supabase,
+        userId: auth.user.id,
+        limit,
+        before
+      })
+    );
+  } catch (error) {
+    return jsonError(error);
   }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  const rows = data ?? [];
-  const hasMore = rows.length > limit;
-  const pageRows = hasMore ? rows.slice(0, limit) : rows;
-  const nextBefore = hasMore ? pageRows.at(-1)?.created_at ?? null : null;
-  const messages = [...pageRows].reverse();
-
-  return NextResponse.json({ messages, hasMore, nextBefore });
 }
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-
-    if (!auth.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await requireRouteUser();
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const parsed = chatRouterRequestSchema.safeParse(await request.json());
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    const parsed = await parseJsonRequest(request, chatRouterRequestSchema);
+    if (!parsed.ok) {
+      return parsed.response;
     }
 
     const serviceClient = createAdminSupabaseClient();
-    const mode = parsed.data.mode as ChatMode;
+    const mode = parsed.data.mode;
     const message = String(parsed.data.message ?? "").trim();
     const chatId = parsed.data.chatId ? String(parsed.data.chatId) : null;
 
@@ -89,7 +71,12 @@ export async function POST(request: Request) {
     }
 
     if (mode === "translate") {
-      const threadId = await ensureThread(serviceClient, auth.user.id, chatId, message);
+      const threadId = await ensureChatThread({
+        serviceClient,
+        userId: auth.user.id,
+        chatId,
+        seedMessage: message
+      });
       return streamTranslateResponse({
         message,
         threadId,
@@ -99,7 +86,7 @@ export async function POST(request: Request) {
     }
 
     if (mode === "add_flashcard") {
-      const flashcard = parseFlashcardMessage(message);
+      const flashcard = parseChatFlashcardMessage(message);
       const card = await addFlashcard({
         serviceClient,
         userId: auth.user.id,
@@ -110,41 +97,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ flashcardId: card.id, en: card.en, ja: card.ja });
     }
 
-    const threadId = await ensureThread(serviceClient, auth.user.id, chatId, message);
-
-    const { data: userMessage, error: userMessageError } = await serviceClient
-      .from("chat_messages")
-      .insert({
-        thread_id: threadId,
-        user_id: auth.user.id,
-        role: "user",
-        mode,
-        content: message
-      })
-      .select("id")
-      .single();
-
-    if (userMessageError) {
-      throw userMessageError;
-    }
-
-    const { data: historyRows } = await serviceClient
-      .from("chat_messages")
-      .select("id, role, content")
-      .eq("thread_id", threadId)
-      .order("created_at", { ascending: false })
-      .limit(40);
-
-    const history = [...(historyRows ?? [])]
-      .filter((row) => row.id !== userMessage.id)
-      .reverse();
-
-    const askContents = buildAskContents(history, message, ASK_CONTEXT_HISTORY_TURNS, ASK_CONTEXT_MAX_CHARS);
+    const threadId = await ensureChatThread({
+      serviceClient,
+      userId: auth.user.id,
+      chatId,
+      seedMessage: message
+    });
+    const { askContents, userMessageId } = await createAskContext({
+      serviceClient,
+      userId: auth.user.id,
+      threadId,
+      mode,
+      message,
+      maxHistoryTurns: ASK_CONTEXT_HISTORY_TURNS,
+      maxChars: ASK_CONTEXT_MAX_CHARS
+    });
 
     return streamAskResponse({
       askContents,
       userId: auth.user.id,
-      userMessageId: userMessage.id,
+      userMessageId,
       threadId,
       serviceClient,
       message
@@ -153,71 +125,6 @@ export async function POST(request: Request) {
     console.error(error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
-}
-
-function parseFlashcardMessage(message: string): { en: string; ja?: string } {
-  const [enPart, jaPart] = message.split("||").map((value) => value.trim());
-
-  if (!enPart) {
-    throw new Error("For add_flashcard mode, message must include English text.");
-  }
-
-  return {
-    en: enPart,
-    ja: jaPart || undefined
-  };
-}
-
-function buildAskContents(
-  rows: Array<{ role: string; content: string }>,
-  latestMessage: string,
-  maxHistoryTurns: number,
-  maxChars: number
-): GeminiContent[] {
-  return buildAskContextTurns({
-    rows,
-    latestMessage,
-    maxHistoryTurns,
-    maxTotalChars: maxChars
-  }).map((turn) => ({
-    role: turn.role,
-    parts: [{ text: turn.text }]
-  }));
-}
-
-async function ensureThread(
-  serviceClient: ReturnType<typeof createAdminSupabaseClient>,
-  userId: string,
-  chatId: string | null,
-  seedMessage: string
-) {
-  if (chatId) {
-    const { data: existing } = await serviceClient
-      .from("chat_threads")
-      .select("id")
-      .eq("id", chatId)
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (existing) {
-      return existing.id;
-    }
-  }
-
-  const { data: created, error } = await serviceClient
-    .from("chat_threads")
-    .insert({
-      user_id: userId,
-      title: seedMessage.slice(0, 40)
-    })
-    .select("id")
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return created.id;
 }
 
 function deriveSignals(message: string, reply: string): Array<{ key: string; weight: number }> {
