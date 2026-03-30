@@ -11,6 +11,7 @@ apps/extension/src/config.js
 
 # build artifacts
 *.tsbuildinfo
+*.tgz
 
 # supabase local temp
 supabase/.temp/

@@ -4,8 +4,8 @@ import {
   buildGcsV4SignedPutUrl,
   checkGcsObjectExists,
   extractTranscriptFromSpeechBatchResponse,
-  extractTranscriptFromSpeechLongRunningResponse,
-  parseGoogleServiceAccount
+  parseGoogleServiceAccount,
+  startSpeechBatchRecognize
 } from "./google-cloud";
 
 function createServiceAccountFixture() {
@@ -78,42 +78,34 @@ describe("extractTranscriptFromSpeechBatchResponse", () => {
   });
 });
 
-describe("extractTranscriptFromSpeechLongRunningResponse", () => {
-  it("extracts transcript and diarized turns from v1 response", () => {
-    const extracted = extractTranscriptFromSpeechLongRunningResponse({
-      response: {
-        results: [
-          {
-            alternatives: [
-              {
-                transcript: "hello there",
-                words: [
-                  { word: "hello", speakerTag: 1 },
-                  { word: "there", speakerTag: 1 }
-                ]
-              }
-            ]
-          },
-          {
-            alternatives: [
-              {
-                transcript: "how are you",
-                words: [
-                  { word: "how", speakerTag: 2 },
-                  { word: "are", speakerTag: 2 },
-                  { word: "you", speakerTag: 2 }
-                ]
-              }
-            ]
-          }
-        ]
-      }
+describe("startSpeechBatchRecognize", () => {
+  it("sends a v2 request without diarization config", async () => {
+    const mocked = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ name: "operations/123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", mocked);
+
+    await expect(
+      startSpeechBatchRecognize({
+        accessToken: "token",
+        projectId: "project-id",
+        location: "us",
+        languageCode: "en-US",
+        model: "chirp_3",
+        gcsUri: "gs://bucket/audio.mp3"
+      })
+    ).resolves.toBe("operations/123");
+
+    const request = mocked.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body ?? "{}")) as {
+      config?: { features?: Record<string, unknown> };
+    };
+    expect(body.config?.features).toEqual({
+      enableAutomaticPunctuation: true
     });
-    expect(extracted.transcript).toBe("hello there\nhow are you");
-    expect(extracted.turns).toEqual([
-      { speaker: 1, text: "hello there" },
-      { speaker: 2, text: "how are you" }
-    ]);
-    expect(extracted.detectedSpeakerCount).toBe(2);
+    vi.unstubAllGlobals();
   });
 });

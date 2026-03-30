@@ -14,7 +14,7 @@ npx vercel link --yes --scope keitaiwasas-projects
 npx vercel --prod --yes --scope keitaiwasas-projects
 cd ../..
 
-# 3) Cloud Run workers (project: gen-lang-client-0926290743)
+# 3) Cloud Run services (optional; not required for current production web worker path)
 gcloud run deploy english-native-fixer \
   --image=us-west1-docker.pkg.dev/ai-studio-registry-prod/ai-studio/deploy-container@sha256:ad9b1d5c6cc21099fa078e6593ef3c70cf20fb84545d6dffd245211c6dcc79eb \
   --region=us-west1 \
@@ -99,6 +99,17 @@ bash scripts/deploy_supabase.sh
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `CRON_SECRET` (random long string)
+   - `CLOUD_RUN_PROFILE_WORKER_URL`
+   - `CLOUD_RUN_READING_WORKER_URL`
+   - `CLOUD_RUN_SPEECH_FIXER_WORKER_URL`
+   - `CLOUD_TASKS_PROJECT_ID`
+   - `CLOUD_TASKS_LOCATION`
+   - `CLOUD_TASKS_QUEUE_PROFILE`
+   - `CLOUD_TASKS_QUEUE_READING`
+   - `CLOUD_TASKS_QUEUE_SPEECH_FIXER`
+   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+   - `GCS_TEMP_BUCKET`
+   - `WORKER_SHARED_SECRET`
 2. Deploy web:
 
 ```bash
@@ -144,10 +155,16 @@ npx vercel --prod --yes --scope keitaiwasas-projects
 
 ## 5. Cloud Run worker deploy (gcloud)
 
+Current production routes `CLOUD_RUN_*_WORKER_URL` to Vercel worker endpoints such as
+`https://<your-vercel-domain>/api/workers/speech-fixer-process`.
+That means changes to `apps/web/app/api/workers/*` are deployed via Vercel, not via the Cloud Run services below.
+
 This repository currently uses the following Cloud Run services in `us-west1`:
 
 - `english-native-fixer`
 - `speaker-diarization-transcriber`
+
+If you later switch `CLOUD_RUN_SPEECH_FIXER_WORKER_URL` back to `english-native-fixer`, make sure the deployed app artifact still includes the bundled `ffmpeg-static` and `ffprobe-static` binaries because long audio is split into 15-minute chunks before Google Speech-to-Text v2 submission.
 
 Check current services:
 

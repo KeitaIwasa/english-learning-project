@@ -213,6 +213,45 @@ export async function deleteFromGcs(params: {
   }
 }
 
+export async function downloadFromGcs(params: {
+  accessToken: string;
+  bucket: string;
+  objectName: string;
+}) {
+  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(params.bucket)}/o/${encodeURIComponent(params.objectName)}?alt=media`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`GCS download failed: ${response.status} ${await response.text()}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+export async function uploadToGcs(params: {
+  accessToken: string;
+  bucket: string;
+  objectName: string;
+  contentType: string;
+  body: Uint8Array;
+}) {
+  const url = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(params.bucket)}/o?uploadType=media&name=${encodeURIComponent(params.objectName)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      "Content-Type": params.contentType
+    },
+    body: Buffer.from(params.body)
+  });
+  if (!response.ok) {
+    throw new Error(`GCS upload failed: ${response.status} ${await response.text()}`);
+  }
+}
+
 export async function startSpeechBatchRecognize(params: {
   accessToken: string;
   projectId: string;
@@ -235,8 +274,7 @@ export async function startSpeechBatchRecognize(params: {
         languageCodes: [params.languageCode],
         model: params.model,
         features: {
-          enableAutomaticPunctuation: true,
-          diarizationConfig: {}
+          enableAutomaticPunctuation: true
         }
       },
       files: [{ uri: params.gcsUri }],
@@ -312,62 +350,6 @@ export async function getSpeechBatchOperation(params: {
   };
 }
 
-export async function startSpeechLongRunningRecognizeV1(params: {
-  accessToken: string;
-  gcsUri: string;
-  languageCode: string;
-  model: string;
-}) {
-  const response = await fetch("https://speech.googleapis.com/v1/speech:longrunningrecognize", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      config: {
-        languageCode: params.languageCode,
-        model: params.model,
-        enableAutomaticPunctuation: true
-      },
-      audio: {
-        uri: params.gcsUri
-      }
-    })
-  });
-  if (!response.ok) {
-    throw new Error(`Speech v1 longRunningRecognize failed: ${response.status} ${await response.text()}`);
-  }
-  const json = (await response.json()) as { name?: string };
-  if (!json.name) {
-    throw new Error("Speech v1 response missing operation name");
-  }
-  return json.name;
-}
-
-export async function getSpeechLongRunningOperationV1(params: {
-  accessToken: string;
-  operationName: string;
-}) {
-  const operationName = String(params.operationName ?? "").replace(/^\/+/, "");
-  const response = await fetch(`https://speech.googleapis.com/v1/operations/${operationName}`, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${params.accessToken}`
-    }
-  });
-  if (!response.ok) {
-    throw new Error(`Speech v1 get operation failed: ${response.status} ${await response.text()}`);
-  }
-  return (await response.json()) as {
-    done?: boolean;
-    error?: { message?: string };
-    response?: {
-      results?: SpeechResultRow[];
-    };
-  };
-}
-
 export function extractTranscriptFromSpeechBatchResponse(params: {
   response?: {
     results?: Record<
@@ -411,23 +393,6 @@ export function extractTranscriptFromSpeechBatchResponse(params: {
     turns: transcriptData.turns,
     detectedSpeakerCount: transcriptData.detectedSpeakerCount,
     fileErrors
-  };
-}
-
-export function extractTranscriptFromSpeechLongRunningResponse(params: {
-  response?: {
-    results?: SpeechResultRow[];
-  };
-}) {
-  const transcriptResults = params.response?.results ?? [];
-  const transcriptData = collectTranscriptResult(transcriptResults);
-  return {
-    transcript: transcriptData.transcript,
-    totalResultCount: transcriptData.totalResultCount,
-    nonEmptyResultCount: transcriptData.nonEmptyResultCount,
-    emptyResultCount: transcriptData.emptyResultCount,
-    turns: transcriptData.turns,
-    detectedSpeakerCount: transcriptData.detectedSpeakerCount
   };
 }
 
