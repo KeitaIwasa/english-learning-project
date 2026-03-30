@@ -1,4 +1,6 @@
 # Setup and Deploy Guide
+環境構築とデプロイ方法をまとめたドキュメントです。
+このドキュメントに変更点や改善点があれば、修正してください。
 
 ## 0. Production deploy (quick runbook)
 
