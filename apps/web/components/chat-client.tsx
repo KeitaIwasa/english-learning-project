@@ -202,6 +202,9 @@ export function ChatClient() {
       keepScrollAnchorRef.current = false;
       return;
     }
+    if (loading) {
+      return;
+    }
     scrollToTimelineBottom();
   }, [messages, loading, loadingHistory, scrollToTimelineBottom]);
 
