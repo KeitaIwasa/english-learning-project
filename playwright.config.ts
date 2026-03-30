@@ -17,7 +17,7 @@ export default defineConfig({
   },
   webServer: useLocalWebServer
     ? {
-        command: "npm run dev:web -- --hostname localhost --port 3000",
+        command: "npm run dev -w @english/web -- --hostname localhost --port 3000",
         url: "http://localhost:3000",
         reuseExistingServer: true,
         timeout: 120_000
