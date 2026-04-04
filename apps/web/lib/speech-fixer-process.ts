@@ -22,11 +22,33 @@ export async function runSpeechFixerProcess(params: {
   const limit = Math.max(1, Math.min(10, Number(params.limit ?? MAX_BATCH_DEFAULT)));
   const queuedResult = await runQueuedJobs(params.serviceClient, limit);
   const processingResult = await runProcessingJobs(params.serviceClient, limit);
+  const remaining = await countActiveJobs(params.serviceClient);
 
   return {
     ok: true,
+    needsFollowup: remaining.queued + remaining.processing > 0,
     processing: processingResult,
-    queued: queuedResult
+    queued: queuedResult,
+    remaining
+  };
+}
+
+async function countActiveJobs(serviceClient: ReturnType<typeof createAdminSupabaseClient>) {
+  const [queuedCount, processingCount] = await Promise.all([
+    serviceClient.from("speech_fix_jobs").select("*", { count: "exact", head: true }).eq("status", "queued"),
+    serviceClient.from("speech_fix_jobs").select("*", { count: "exact", head: true }).eq("status", "processing")
+  ]);
+
+  if (queuedCount.error) {
+    throw queuedCount.error;
+  }
+  if (processingCount.error) {
+    throw processingCount.error;
+  }
+
+  return {
+    queued: Number(queuedCount.count ?? 0),
+    processing: Number(processingCount.count ?? 0)
   };
 }
 

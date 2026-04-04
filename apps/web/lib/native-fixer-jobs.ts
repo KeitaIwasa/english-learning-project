@@ -1,7 +1,7 @@
 import { addFlashcard } from "@/lib/flashcards";
 import { buildGcsV4SignedPutUrl, checkGcsObjectExists, getGoogleAccessToken, parseGoogleServiceAccount } from "@/lib/google-cloud";
-import { enqueueWorkerTask } from "@/lib/cloud-tasks";
 import { createAdminSupabaseClient } from "@/lib/service";
+import { enqueueSpeechFixerTask } from "@/lib/speech-fixer-worker";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import type { Json } from "@/types/supabase";
 
@@ -426,9 +426,9 @@ function normalizeGcsField(value: unknown): string {
 
 async function triggerSpeechFixerOnce() {
   try {
-    await enqueueWorkerTask({
-      kind: "speech_fixer",
-      payload: { limit: 1, trigger: "upload_complete" }
+    await enqueueSpeechFixerTask({
+      limit: 1,
+      trigger: "upload_complete"
     });
   } catch (error) {
     console.error(`[native-fixer] failed to trigger speech-fixer-process immediately: ${String(error)}`);
