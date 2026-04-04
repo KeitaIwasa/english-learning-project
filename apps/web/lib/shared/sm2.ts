@@ -26,7 +26,10 @@ export function nextSm2(input: Sm2Input) {
     intervalDays = Math.round(input.intervalDays * input.easeFactor);
   }
 
-  const easeFactor = Math.max(1.3, input.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+  const easeFactor = Math.max(
+    1.3,
+    input.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+  );
 
   return {
     repetition,

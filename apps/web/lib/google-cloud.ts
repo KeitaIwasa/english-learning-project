@@ -32,12 +32,6 @@ type SpeechResultRow = {
   alternatives?: SpeechAlternative[];
 };
 
-type SpeechTranscriptContainer = {
-  transcript?: {
-    results?: SpeechResultRow[];
-  };
-};
-
 export function parseGoogleServiceAccount(rawJson: string): ServiceAccount {
   let source = String(rawJson ?? "").trim();
   while (source.endsWith("\\n")) {

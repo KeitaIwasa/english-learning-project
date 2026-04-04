@@ -154,7 +154,7 @@ export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<s
     if (done) {
       break;
     }
-    buffer += decoder.decode(value, { stream: true });
+    buffer += decoder.decode(value, { stream: true }).replace(/\r/g, "");
     const events = buffer.split("\n\n");
     buffer = events.pop() ?? "";
 
@@ -168,7 +168,7 @@ export async function* streamWithGemini(params: GeminiRequest): AsyncGenerator<s
     }
   }
 
-  buffer += decoder.decode();
+  buffer += decoder.decode().replace(/\r/g, "");
   if (buffer.trim()) {
     const texts = parseEventText(buffer);
     for (const text of texts) {

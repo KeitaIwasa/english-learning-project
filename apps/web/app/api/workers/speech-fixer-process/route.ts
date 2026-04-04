@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyWorkerToken } from "@/lib/cloud-tasks";
 import { createAdminSupabaseClient } from "@/lib/service";
 import { runSpeechFixerProcess } from "@/lib/speech-fixer-process";
+import { enqueueSpeechFixerFollowup } from "@/lib/speech-fixer-worker";
 
 export async function POST(request: Request) {
   if (!verifyWorkerToken(request)) {
@@ -16,7 +17,17 @@ export async function POST(request: Request) {
       serviceClient: createAdminSupabaseClient(),
       limit
     });
-    return NextResponse.json(result);
+
+    let followupTaskName = "";
+    if (result.needsFollowup) {
+      followupTaskName = await enqueueSpeechFixerFollowup({ limit });
+    }
+
+    return NextResponse.json({
+      ...result,
+      followupQueued: Boolean(followupTaskName),
+      followupTaskName
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

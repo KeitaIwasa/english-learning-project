@@ -1,66 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-
-type QueueItem = {
-  id: string;
-  en: string;
-  ja: string;
-  nextReviewAt: string | null;
-  isDue: boolean;
-};
-
-type QueueResponse = {
-  queue?: QueueItem[];
-  total?: number;
-  nextDueAt?: string | null;
-  error?: string;
-};
-
-type ReviewResponse = {
-  ok?: boolean;
-  skipped?: boolean;
-  nextReviewAt?: string;
-  flashcardId?: string;
-  nextDueAt?: string | null;
-  error?: string;
-};
-
-type ReviewAttempt = {
-  flashcardId: string;
-  remembered: boolean;
-  card: QueueItem;
-};
-
-type ReviewSaveError = {
-  message: string;
-  attempt: ReviewAttempt;
-};
-
-type Sm2Info = {
-  repetition: number;
-  intervalDays: number;
-  easeFactor: number;
-  nextReviewAt: string;
-  reviewedAt: string;
-};
-
-type RecentCardWithSm2 = {
-  id: string;
-  en: string;
-  ja: string;
-  created_at: string;
-  updated_at: string;
-  sm2: Sm2Info | null;
-};
-
-type RecentCardsResponse = {
-  items?: RecentCardWithSm2[];
-  total?: number;
-  limit?: number;
-  offset?: number;
-  error?: string;
-};
+import { fetchRecentCards, fetchReviewQueue, removeRecentCard, submitReviewResult, updateRecentCard } from "@/components/flashcards-review/api";
+import { RecentCardsPanel } from "@/components/flashcards-review/recent-cards-panel";
+import { ReviewSession } from "@/components/flashcards-review/review-session";
+import type { QueueItem, RecentCardWithSm2, ReviewAttempt, ReviewSaveError } from "@/components/flashcards-review/shared";
 
 const LIST_LIMIT = 100;
 
@@ -109,8 +53,7 @@ export function FlashcardsReviewClient() {
       setLoadingQueue(true);
       setQueueError("");
       try {
-        const res = await fetch("/api/flashcards/review", { method: "GET" });
-        const json = (await res.json()) as QueueResponse;
+        const { res, json } = await fetchReviewQueue();
         if (!active) {
           return;
         }
@@ -171,13 +114,10 @@ export function FlashcardsReviewClient() {
       setLoadingRecent(true);
       setRecentError("");
       try {
-        const params = new URLSearchParams({
-          q: debouncedQuery,
-          limit: String(LIST_LIMIT)
+        const { res, json } = await fetchRecentCards({
+          query: debouncedQuery,
+          limit: LIST_LIMIT
         });
-
-        const res = await fetch(`/api/flashcards/manage?${params.toString()}`, { method: "GET" });
-        const json = (await res.json()) as RecentCardsResponse;
 
         if (!active) {
           return;
@@ -227,15 +167,10 @@ export function FlashcardsReviewClient() {
     inFlightReviewIdsRef.current.add(attempt.flashcardId);
 
     try {
-      const res = await fetch("/api/flashcards/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          flashcardId: attempt.flashcardId,
-          remembered: attempt.remembered
-        })
+      const { res, json } = await submitReviewResult({
+        flashcardId: attempt.flashcardId,
+        remembered: attempt.remembered
       });
-      const json = (await res.json()) as ReviewResponse;
 
       if (!res.ok || !json.ok) {
         setQueue((prev) => {
@@ -327,20 +262,11 @@ export function FlashcardsReviewClient() {
     setSaveErrorById((prev) => ({ ...prev, [cardId]: "" }));
 
     try {
-      const res = await fetch("/api/flashcards/manage", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: cardId,
-          en: nextEn,
-          ja: nextJa
-        })
+      const { res, json } = await updateRecentCard({
+        id: cardId,
+        en: nextEn,
+        ja: nextJa
       });
-      const json = (await res.json()) as {
-        ok?: boolean;
-        item?: { id: string; en: string; ja: string; updated_at: string };
-        error?: string;
-      };
 
       if (!res.ok || !json.ok || !json.item) {
         setSaveErrorById((prev) => ({
@@ -385,12 +311,7 @@ export function FlashcardsReviewClient() {
     setRecentError("");
 
     try {
-      const res = await fetch("/api/flashcards/manage", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: cardId })
-      });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const { res, json } = await removeRecentCard(cardId);
 
       if (!res.ok || !json.ok) {
         setRecentError(typeof json.error === "string" ? json.error : "削除に失敗しました。");
@@ -407,103 +328,20 @@ export function FlashcardsReviewClient() {
 
   return (
     <div className="fc-page">
-      {/* ── 復習セクション ── */}
-      <section className="panel fc-review-panel">
-        <div className="fc-section-header">
-          <span className="fc-section-icon">🃏</span>
-          <h2 className="fc-section-title">フラッシュカード復習</h2>
-        </div>
-
-        {loadingQueue ? (
-          <div className="fc-loading">
-            <div className="fc-spinner" />
-            <p className="muted">復習キューを読み込み中...</p>
-          </div>
-        ) : null}
-
-        {queueError ? <p className="fc-error">{queueError}</p> : null}
-        {reviewSaveError ? (
-          <div className="fc-error fc-review-save-error" role="alert">
-            <span>{reviewSaveError.message}</span>
-            <button type="button" className="fc-review-retry-btn" onClick={retrySaveReview}>
-              再送
-            </button>
-          </div>
-        ) : null}
-
-        {!loadingQueue && !queueError && current ? (
-          <div className="fc-review">
-            {/* 進捗バー */}
-            <div className="fc-progress">
-              <div className="fc-progress-bar-wrap">
-                <div className="fc-progress-bar-fill" style={{ width: `${progressPercent}%` }} />
-              </div>
-              <span className="fc-progress-label">{progressText}</span>
-            </div>
-
-            {/* カード */}
-            <div className={`fc-card ${revealed ? "fc-card--revealed" : ""}`}>
-              <div className="fc-card-inner">
-                {/* 表面（日本語） */}
-                <div className="fc-card-face fc-card-front">
-                  <p className="fc-card-lang-badge">🇯🇵 日本語</p>
-                  <p className="fc-card-ja">{current.ja}</p>
-                  {!revealed ? (
-                    <button type="button" className="fc-reveal-btn" onClick={() => setRevealed(true)}>
-                      答えを見る
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    </button>
-                  ) : null}
-                </div>
-
-                {/* 裏面（英語） */}
-                {revealed ? (
-                  <div className="fc-card-face fc-card-back">
-                    <p className="fc-card-lang-badge">🇬🇧 English</p>
-                    <p className="fc-card-en">{current.en}</p>
-                    <div className="fc-answer-actions">
-                      <button
-                        type="button"
-                        className="fc-btn-remembered"
-                        onClick={() => submitReview(true)}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                        覚えている
-                      </button>
-                      <button
-                        type="button"
-                        className="fc-btn-forgot"
-                        onClick={() => submitReview(false)}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
-                        覚えていない
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {hasCompleted ? (
-          <div className="fc-complete">
-            <div className="fc-complete-icon">🎉</div>
-            <p className="fc-complete-title">今日の復習は完了です！</p>
-            <p className="muted">
-              次回復習予定: <strong>{formatDateTime(nextDueAt)}</strong>
-            </p>
-          </div>
-        ) : null}
-      </section>
+      <ReviewSession
+        loadingQueue={loadingQueue}
+        queueError={queueError}
+        reviewSaveError={reviewSaveError}
+        current={current}
+        progressPercent={progressPercent}
+        progressText={progressText}
+        revealed={revealed}
+        hasCompleted={hasCompleted}
+        nextDueAt={nextDueAt}
+        onReveal={() => setRevealed(true)}
+        onSubmitReview={submitReview}
+        onRetrySave={retrySaveReview}
+      />
 
       {/* ── 追加セクション ── */}
       <section className="panel fc-add-panel">
@@ -534,183 +372,27 @@ export function FlashcardsReviewClient() {
         </form>
       </section>
 
-      {/* ── 最近のカードセクション ── */}
-      <section className="panel fc-list-panel">
-        <div className="fc-section-header">
-          <span className="fc-section-icon">📚</span>
-          <h2 className="fc-section-title">カード一覧</h2>
-          {recentTotal > 0 ? <span className="fc-count-badge">{recentTotal} 件</span> : null}
-        </div>
-
-        <div className="fc-search-wrap">
-          <svg className="fc-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            id="recent-card-search"
-            name="recent-card-search"
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="English / 日本語で検索..."
-            className="fc-search-input"
-          />
-        </div>
-
-        {loadingRecent ? (
-          <div className="fc-loading">
-            <div className="fc-spinner" />
-            <p className="muted">読み込み中...</p>
-          </div>
-        ) : null}
-        {recentError ? <p className="fc-error">{recentError}</p> : null}
-
-        {!loadingRecent && !recentError && recentCards.length === 0 ? (
-          <div className="fc-empty">
-            <p className="muted">カードが見つかりません。</p>
-          </div>
-        ) : null}
-
-        {!loadingRecent && !recentError && recentCards.length > 0 ? (
-          <div className="fc-card-list">
-            {recentCards.map((card) => {
-              const draft = draftById[card.id] ?? { en: card.en, ja: card.ja };
-              const isSaving = Boolean(savingById[card.id]);
-              const isDeleting = Boolean(deletingById[card.id]);
-              const saveError = saveErrorById[card.id] ?? "";
-              const isExpanded = Boolean(expandedSm2[card.id]);
-
-              return (
-                <article className="fc-list-card" key={card.id}>
-                  <div className="fc-list-card-header">
-                    <span className="fc-list-date">{formatDateTime(card.created_at)}</span>
-                    <div className="fc-list-header-actions">
-                      {isSaving ? (
-                        <span className="fc-saving-badge">保存中...</span>
-                      ) : !isSaving && saveError ? (
-                        <span className="fc-error-badge">{saveError}</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="fc-sm2-toggle"
-                        onClick={() => setExpandedSm2((prev) => ({ ...prev, [card.id]: !prev[card.id] }))}
-                      >
-                        {isExpanded ? "▲" : "▼"} SM-2
-                      </button>
-                      <button
-                        type="button"
-                        className="fc-delete-btn"
-                        onClick={() => void deleteCard(card.id)}
-                        disabled={isSaving || isDeleting}
-                        title="削除"
-                        aria-label="削除"
-                      >
-                        {isDeleting ? (
-                          <div className="fc-spinner fc-spinner--sm" />
-                        ) : (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                            <path d="M10 11v6" />
-                            <path d="M14 11v6" />
-                            <path d="M9 6V4h6v2" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="fc-list-fields">
-                    <div className="fc-list-field">
-                      <span className="fc-list-field-label">🇬🇧</span>
-                      <textarea
-                        value={draft.en}
-                        rows={2}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setDraftById((prev) => ({
-                            ...prev,
-                            [card.id]: { ...prev[card.id], en: value, ja: prev[card.id]?.ja ?? card.ja }
-                          }));
-                        }}
-                        onBlur={() => {
-                          void saveCardIfNeeded(card.id);
-                        }}
-                        disabled={isDeleting}
-                      />
-                    </div>
-                    <div className="fc-list-field">
-                      <span className="fc-list-field-label">🇯🇵</span>
-                      <textarea
-                        value={draft.ja}
-                        rows={2}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setDraftById((prev) => ({
-                            ...prev,
-                            [card.id]: { en: prev[card.id]?.en ?? card.en, ja: value }
-                          }));
-                        }}
-                        onBlur={() => {
-                          void saveCardIfNeeded(card.id);
-                        }}
-                        disabled={isDeleting}
-                      />
-                    </div>
-                  </div>
-
-                  {isExpanded ? (
-                    <div className="fc-sm2-info">
-                      <div className="fc-sm2-grid">
-                        <div className="fc-sm2-item">
-                          <span className="fc-sm2-key">繰り返し回数</span>
-                          <span className="fc-sm2-val">{card.sm2 ? card.sm2.repetition : "—"}</span>
-                        </div>
-                        <div className="fc-sm2-item">
-                          <span className="fc-sm2-key">間隔 (日)</span>
-                          <span className="fc-sm2-val">{card.sm2 ? card.sm2.intervalDays : "—"}</span>
-                        </div>
-                        <div className="fc-sm2-item">
-                          <span className="fc-sm2-key">Ease</span>
-                          <span className="fc-sm2-val">{card.sm2 ? card.sm2.easeFactor.toFixed(2) : "—"}</span>
-                        </div>
-                        <div className="fc-sm2-item">
-                          <span className="fc-sm2-key">次回復習</span>
-                          <span className="fc-sm2-val">{card.sm2 ? formatDateTime(card.sm2.nextReviewAt) : "未レビュー"}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        ) : null}
-
-        <div className="fc-pagination">
-          <span className="fc-page-info muted">{recentTotal} 件</span>
-        </div>
-      </section>
+      <RecentCardsPanel
+        recentTotal={recentTotal}
+        searchQuery={searchQuery}
+        loadingRecent={loadingRecent}
+        recentError={recentError}
+        recentCards={recentCards}
+        draftById={draftById}
+        savingById={savingById}
+        saveErrorById={saveErrorById}
+        deletingById={deletingById}
+        expandedSm2={expandedSm2}
+        onSearchChange={setSearchQuery}
+        onToggleSm2={(cardId) => setExpandedSm2((prev) => ({ ...prev, [cardId]: !prev[cardId] }))}
+        onDraftChange={(cardId, next) => setDraftById((prev) => ({ ...prev, [cardId]: next }))}
+        onSaveCard={(cardId) => {
+          void saveCardIfNeeded(cardId);
+        }}
+        onDeleteCard={(cardId) => {
+          void deleteCard(cardId);
+        }}
+      />
     </div>
   );
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "未定";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString("ja-JP", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
 }

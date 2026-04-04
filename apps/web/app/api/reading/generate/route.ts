@@ -1,35 +1,19 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createAdminSupabaseClient } from "@/lib/service";
-import {
-  executeReadingGeneration,
-  getLatestJobForDate,
-  markTimedOutActiveJobs,
-  resolveTargetDate
-} from "@/app/api/reading/_jobs";
+import { enqueueReadingGeneration, getReadingGenerationStatus } from "@/lib/reading-generate-service";
+import { jsonError, requireRouteUser } from "@/lib/server/route-helpers";
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-
-    if (!auth.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await requireRouteUser();
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const targetDate = resolveTargetDate(new URL(request.url).searchParams.get("date"));
-    const adminClient = createAdminSupabaseClient();
-
-    await markTimedOutActiveJobs({
-      adminClient,
+    const { latest, targetDate } = await getReadingGenerationStatus({
+      adminClient: createAdminSupabaseClient(),
       userId: auth.user.id,
-      targetDate
-    });
-
-    const latest = await getLatestJobForDate({
-      adminClient,
-      userId: auth.user.id,
-      targetDate
+      rawDate: new URL(request.url).searchParams.get("date")
     });
 
     if (!latest) {
@@ -50,31 +34,24 @@ export async function GET(request: Request) {
       targetDate
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-
-    if (!auth.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await requireRouteUser();
+    if (!auth.ok) {
+      return auth.response;
     }
 
     const body = await request.json().catch(() => ({}));
-    const targetDate = resolveTargetDate(body?.date);
-    const force = body?.force === true;
-    const profileId = typeof body?.profileId === "string" ? body.profileId : undefined;
-
-    const result = await executeReadingGeneration({
+    const { result, targetDate } = await enqueueReadingGeneration({
       adminClient: createAdminSupabaseClient(),
       userId: auth.user.id,
-      targetDate,
-      triggerType: "manual",
-      force,
-      profileId
+      rawDate: body?.date,
+      force: body?.force === true,
+      profileId: typeof body?.profileId === "string" ? body.profileId : undefined
     });
 
     if (!result.ok && result.conflict) {
@@ -108,6 +85,6 @@ export async function POST(request: Request) {
       targetDate
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }

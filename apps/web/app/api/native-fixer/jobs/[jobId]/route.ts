@@ -1,83 +1,58 @@
 import { NextResponse } from "next/server";
-import { speechFixJobTitleUpdateSchema } from "@/lib/schemas";
-import type { Json } from "@/types/supabase";
-import { normalizeCorrections, normalizeTranscriptTurns, requireAuthUser } from "../../_utils";
+import { speechFixJobTitleUpdateSchema } from "@/lib/shared";
+import { getSpeechFixJobDetail, updateSpeechFixJobTitle } from "@/lib/native-fixer-jobs";
+import { jsonError, parseJsonRequest, requireRouteUser } from "@/lib/server/route-helpers";
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
 };
 
 export async function GET(_request: Request, context: RouteContext) {
-  const { supabase, user } = await requireAuthUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireRouteUser();
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { jobId } = await context.params;
-  const { data, error } = await supabase
-    .from("speech_fix_jobs")
-    .select("*")
-    .eq("id", jobId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  if (!data) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  const stats = (data.stats_json ?? {}) as { transcriptTurns?: Json };
-
-  return NextResponse.json({
-    item: {
-      id: data.id,
-      fileName: data.file_name,
-      customTitle: data.custom_title,
-      fileSize: data.file_size,
-      mimeType: data.mime_type,
-      status: data.status,
-      transcriptFull: data.transcript_full,
-      transcriptTurns: normalizeTranscriptTurns(stats.transcriptTurns ?? []),
-      corrections: normalizeCorrections(data.corrections_json),
-      errorMessage: data.error_message,
-      stats: data.stats_json,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-      completedAt: data.completed_at
+  try {
+    const result = await getSpeechFixJobDetail({
+      supabase: auth.supabase,
+      userId: auth.user.id,
+      jobId
+    });
+    if (!result) {
+      return jsonError("Not found", 404);
     }
-  });
+    return NextResponse.json(result);
+  } catch (error) {
+    return jsonError(error);
+  }
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const { supabase, user } = await requireAuthUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireRouteUser();
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { jobId } = await context.params;
-  const parsed = speechFixJobTitleUpdateSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  const parsed = await parseJsonRequest(request, speechFixJobTitleUpdateSchema);
+  if (!parsed.ok) {
+    return parsed.response;
   }
 
-  const customTitle = parsed.data.customTitle || null;
-  const { data, error } = await supabase
-    .from("speech_fix_jobs")
-    .update({
-      custom_title: customTitle
-    })
-    .eq("id", jobId)
-    .eq("user_id", user.id)
-    .select("id, custom_title")
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    const result = await updateSpeechFixJobTitle({
+      supabase: auth.supabase,
+      userId: auth.user.id,
+      jobId,
+      customTitle: parsed.data.customTitle || null
+    });
+    if (!result) {
+      return jsonError("Not found", 404);
+    }
+    return NextResponse.json(result);
+  } catch (error) {
+    return jsonError(error);
   }
-  if (!data) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  return NextResponse.json({ ok: true, id: data.id, customTitle: data.custom_title });
 }
