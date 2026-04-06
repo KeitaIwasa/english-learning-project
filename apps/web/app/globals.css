@@ -1356,6 +1356,32 @@ ul {
   margin: 0 0 8px;
 }
 
+.nfx-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.nfx-section-head h4 {
+  margin: 0;
+}
+
+.nfx-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.nfx-copy-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .nfx-transcript-body {
   white-space: pre-wrap;
   background: #f8fbff;
@@ -1365,6 +1391,12 @@ ul {
   max-height: 230px;
   overflow: auto;
   line-height: 1.55;
+}
+
+.nfx-copy-error {
+  margin: 8px 0 0;
+  color: #9f2034;
+  font-size: 13px;
 }
 
 .nfx-transcript-turns {

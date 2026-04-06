@@ -279,6 +279,7 @@ async function generateReading(params: {
     `- 使用できる話者名は「${speakerNames[0]}」と「${speakerNames[1]}」のみ`,
     "- 各行を「話者名: セリフ」形式にし、地の文は禁止",
     "- 学習文脈に沿った語彙・言い回し・文法などを適度に再利用。ただし、無理にすべて利用する必要はない。自然なストーリ・会話になるように取捨選択して。",
+    "- 文章をそのまま使うのではなく、内容を適度にアレンジして、学習効果を高めて。",
     "- 必ずJSONのみを返す",
     "- 出力スキーマ:",
     '{ "title": "string", "passage": "string", "glossary": [{ "en": "string", "ja": "string" }], "review_points": [{ "target": "string", "explanationJa": "string", "excerpt": "string" }], "used_targets": { "review": ["string"], "new": ["string"] } }'

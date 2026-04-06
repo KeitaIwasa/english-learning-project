@@ -1,8 +1,9 @@
 "use client";
 
-import type { ChangeEvent } from "react";
-import { AudioLines, CheckCircle2, CircleAlert, CloudUpload, LoaderCircle, Plus } from "lucide-react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { AudioLines, Check, CheckCircle2, CircleAlert, CloudUpload, Copy, LoaderCircle, Plus } from "lucide-react";
 import {
+  buildTranscriptCopyText,
   formatTranscriptForDisplay,
   getTranscriptSpeakerLabel
 } from "@/lib/native-fixer-transcript";
@@ -27,6 +28,38 @@ type NativeFixerResultPanelProps = {
 const ACCEPTED_AUDIO = "audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/aac,audio/mp4,audio/m4a";
 
 export function NativeFixerResultPanel(props: NativeFixerResultPanelProps) {
+  const [copyState, setCopyState] = useState<"idle" | "success" | "error">("idle");
+  const transcriptCopyText = useMemo(
+    () =>
+      props.detail
+        ? buildTranscriptCopyText({
+            transcriptFull: props.detail.transcriptFull,
+            transcriptTurns: props.detail.transcriptTurns
+          })
+        : "",
+    [props.detail]
+  );
+
+  useEffect(() => {
+    if (copyState === "idle") {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopyState("idle"), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  const handleCopyTranscript = async () => {
+    if (!transcriptCopyText) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(transcriptCopyText);
+      setCopyState("success");
+    } catch {
+      setCopyState("error");
+    }
+  };
+
   return (
     <section className="nfx-main">
       {props.viewMode === "create" ? (
@@ -85,7 +118,19 @@ export function NativeFixerResultPanel(props: NativeFixerResultPanelProps) {
               {props.detail.status === "completed" ? (
                 <div className="nfx-completed">
                   <div className="nfx-transcript">
-                    <h4>文字起こし全文</h4>
+                    <div className="nfx-section-head">
+                      <h4>文字起こし全文</h4>
+                      <button
+                        type="button"
+                        className="secondary nfx-copy-btn"
+                        onClick={() => void handleCopyTranscript()}
+                        disabled={!transcriptCopyText}
+                        aria-label="文字起こし全文をコピー"
+                      >
+                        {copyState === "success" ? <Check size={15} /> : <Copy size={15} />}
+                        {copyState === "success" ? "コピー済み" : copyState === "error" ? "再試行" : "コピー"}
+                      </button>
+                    </div>
                     <div className="nfx-transcript-body">
                       {props.detail.transcriptTurns.length > 0 ? (
                         <div className="nfx-transcript-turns">
@@ -102,6 +147,7 @@ export function NativeFixerResultPanel(props: NativeFixerResultPanelProps) {
                         "(文字起こし結果なし)"
                       )}
                     </div>
+                    {copyState === "error" ? <p className="nfx-copy-error">コピーに失敗しました。もう一度試してください。</p> : null}
                   </div>
 
                   <div className="nfx-corrections">

@@ -5,6 +5,24 @@ export type TranscriptTurn = {
   text: string;
 };
 
+export function buildTranscriptCopyText(params: { transcriptFull: string | null; transcriptTurns: TranscriptTurn[] }): string {
+  const turns = params.transcriptTurns
+    .map((turn) => {
+      const text = String(turn.text ?? "").trim();
+      if (!text) {
+        return "";
+      }
+      return `${getTranscriptSpeakerLabel(turn.speaker)}: ${text}`;
+    })
+    .filter((line) => line.length > 0);
+
+  if (turns.length > 0) {
+    return turns.join("\n\n");
+  }
+
+  return formatTranscriptForDisplay(String(params.transcriptFull ?? ""));
+}
+
 export function formatTranscriptForDisplay(input: string): string {
   const text = String(input ?? "");
   if (!text.trim()) {

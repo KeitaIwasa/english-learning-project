@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTranscriptForDisplay, getTranscriptSpeakerLabel } from "./native-fixer-transcript";
+import { buildTranscriptCopyText, formatTranscriptForDisplay, getTranscriptSpeakerLabel } from "./native-fixer-transcript";
 
 describe("formatTranscriptForDisplay", () => {
   it("merges fragmented short lines into one paragraph", () => {
@@ -24,5 +24,26 @@ describe("formatTranscriptForDisplay", () => {
     expect(getTranscriptSpeakerLabel(1)).toBe("Speaker 1");
     expect(getTranscriptSpeakerLabel(2)).toBe("Speaker 2");
     expect(getTranscriptSpeakerLabel("unknown")).toBe("不明話者");
+  });
+
+  it("builds copy text from transcript turns", () => {
+    expect(
+      buildTranscriptCopyText({
+        transcriptFull: "ignored",
+        transcriptTurns: [
+          { speaker: 1, text: "Hello there." },
+          { speaker: 2, text: "Hi." }
+        ]
+      })
+    ).toBe("Speaker 1: Hello there.\n\nSpeaker 2: Hi.");
+  });
+
+  it("falls back to formatted transcript when turns are absent", () => {
+    expect(
+      buildTranscriptCopyText({
+        transcriptFull: ["Not.", "Right.", "Huge."].join("\n"),
+        transcriptTurns: []
+      })
+    ).toBe("Not. Right. Huge.");
   });
 });
