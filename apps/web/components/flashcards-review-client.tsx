@@ -1,5 +1,6 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchRecentCards, fetchReviewQueue, removeRecentCard, submitReviewResult, updateRecentCard } from "@/components/flashcards-review/api";
 import { RecentCardsPanel } from "@/components/flashcards-review/recent-cards-panel";
@@ -31,6 +32,8 @@ export function FlashcardsReviewClient() {
   const [deletingById, setDeletingById] = useState<Record<string, boolean>>({});
   const [refreshKey, setRefreshKey] = useState(0);
   const [expandedSm2, setExpandedSm2] = useState<Record<string, boolean>>({});
+  const [addingCard, setAddingCard] = useState(false);
+  const [addCardError, setAddCardError] = useState("");
 
   const current = queue[0] ?? null;
 
@@ -326,6 +329,55 @@ export function FlashcardsReviewClient() {
     }
   };
 
+  const submitAddCard = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (addingCard) {
+      return;
+    }
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const en = String(formData.get("en") ?? "").trim();
+    const ja = String(formData.get("ja") ?? "").trim();
+
+    if (!en) {
+      setAddCardError("English は必須です。");
+      return;
+    }
+
+    formData.set("en", en);
+    formData.set("ja", ja);
+
+    setAddingCard(true);
+    setAddCardError("");
+
+    try {
+      const response = await fetch("/api/flashcards", {
+        method: "POST",
+        body: formData,
+        headers: {
+          Accept: "application/json"
+        }
+      });
+      const json = (await response.json()) as {
+        ok?: boolean;
+        error?: unknown;
+      };
+
+      if (!response.ok || !json.ok) {
+        setAddCardError(typeof json.error === "string" ? json.error : "カード追加に失敗しました。");
+        return;
+      }
+
+      form.reset();
+      setRefreshKey((prev) => prev + 1);
+    } catch (error) {
+      setAddCardError(`カード追加に失敗しました: ${String(error)}`);
+    } finally {
+      setAddingCard(false);
+    }
+  };
+
   return (
     <div className="fc-page">
       <ReviewSession
@@ -349,25 +401,35 @@ export function FlashcardsReviewClient() {
           <span className="fc-section-icon">➕</span>
           <h2 className="fc-section-title">カードを追加</h2>
         </div>
-        <form action="/api/flashcards" method="post" className="fc-add-form">
+        <form action="/api/flashcards" method="post" className="fc-add-form" onSubmit={submitAddCard}>
           <div className="fc-field">
             <label className="fc-label" htmlFor="fc-add-en">
               🇬🇧 English
             </label>
-            <textarea id="fc-add-en" name="en" required rows={3} placeholder="英語フレーズを入力..." />
+            <textarea id="fc-add-en" name="en" required rows={3} placeholder="英語フレーズを入力..." disabled={addingCard} />
           </div>
           <div className="fc-field">
             <label className="fc-label" htmlFor="fc-add-ja">
               🇯🇵 日本語訳（任意）
             </label>
-            <textarea id="fc-add-ja" name="ja" rows={2} placeholder="日本語訳を入力..." />
+            <textarea id="fc-add-ja" name="ja" rows={2} placeholder="日本語訳を入力..." disabled={addingCard} />
           </div>
-          <button type="submit" className="fc-add-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            カードを追加
+          {addCardError ? <p className="fc-error">{addCardError}</p> : null}
+          <button type="submit" className="fc-add-btn" disabled={addingCard}>
+            {addingCard ? (
+              <>
+                <span className="fc-spinner fc-spinner--sm fc-spinner--invert" aria-hidden="true" />
+                追加中...
+              </>
+            ) : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                カードを追加
+              </>
+            )}
           </button>
         </form>
       </section>

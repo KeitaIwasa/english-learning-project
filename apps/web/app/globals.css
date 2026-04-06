@@ -643,6 +643,11 @@ ul {
   height: 14px;
 }
 
+.fc-spinner--invert {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+}
+
 @keyframes fc-spin {
   to { transform: rotate(360deg); }
 }
@@ -904,6 +909,11 @@ ul {
 
 .fc-add-btn:hover {
   opacity: 0.88;
+}
+
+.fc-add-btn:disabled {
+  opacity: 0.78;
+  cursor: wait;
 }
 
 /* ── Search ── */
