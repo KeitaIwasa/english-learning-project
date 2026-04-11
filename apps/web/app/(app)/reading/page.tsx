@@ -32,7 +32,6 @@ export default async function ReadingPage() {
   const supabase = await createSupabaseServerClient();
   const baseSelect =
     "id, title, body_en, glossary_ja_json, used_review_targets_json, rationale_json, generated_for_date, audio_mime_type, audio_voice, created_at";
-
   let passages: ReadingPassageRow[] = [];
 
   const primary = await supabase

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
@@ -56,6 +58,9 @@ export function UserMenu({ email }: UserMenuProps) {
       {open ? (
         <div className="user-menu-popover" role="menu">
           <p className="user-email">{email}</p>
+          <Link href={"/settings" as Route} className="user-menu-link" role="menuitem" onClick={() => setOpen(false)}>
+            設定
+          </Link>
           <button type="button" onClick={signOut} disabled={loading} className="signout-btn">
             ログアウト
           </button>
