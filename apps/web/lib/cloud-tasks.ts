@@ -1,7 +1,7 @@
 import { appEnv } from "@/lib/app-env";
 import { getGoogleAccessToken, parseGoogleServiceAccount } from "@/lib/google-cloud";
 
-type QueueKind = "reading" | "speech_fixer" | "profile";
+type QueueKind = "reading" | "speech_fixer" | "profile" | "line_delivery";
 
 function resolveQueueName(kind: QueueKind): string {
   if (kind === "reading") {
@@ -9,6 +9,9 @@ function resolveQueueName(kind: QueueKind): string {
   }
   if (kind === "speech_fixer") {
     return appEnv.cloudTasksQueueSpeechFixer();
+  }
+  if (kind === "line_delivery") {
+    return appEnv.cloudTasksQueueLineDelivery();
   }
   return appEnv.cloudTasksQueueProfile();
 }
@@ -19,6 +22,9 @@ function resolveTargetUrl(kind: QueueKind): string {
   }
   if (kind === "speech_fixer") {
     return appEnv.cloudRunSpeechFixerWorkerUrl();
+  }
+  if (kind === "line_delivery") {
+    return appEnv.cloudRunLineDeliveryWorkerUrl();
   }
   return appEnv.cloudRunProfileWorkerUrl();
 }

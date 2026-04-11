@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyWorkerToken } from "@/lib/cloud-tasks";
+import { enqueueLineDelivery } from "@/lib/line-delivery-service";
 import { createAdminSupabaseClient } from "@/lib/service";
 import { runReadingGenerateDaily } from "@/lib/reading-generate";
 
@@ -57,6 +58,43 @@ export async function POST(request: Request) {
       forceRegenerate: force
     });
 
+    let lineDelivery: {
+      queued: boolean;
+      error?: string;
+      skipped?: boolean;
+    } | null = null;
+
+    if (result.passageId) {
+      try {
+        const queued = await enqueueLineDelivery({
+          adminClient: admin,
+          userId,
+          targetDate,
+          passageId: result.passageId,
+          triggerType: "auto",
+          allowResend: false
+        });
+
+        if (queued.ok) {
+          lineDelivery = {
+            queued: queued.queued
+          };
+        } else {
+          lineDelivery = {
+            queued: false,
+            skipped: queued.status === 409,
+            error: queued.error
+          };
+        }
+      } catch (lineError) {
+        console.error("[reading-generate-worker] failed to enqueue line delivery", lineError);
+        lineDelivery = {
+          queued: false,
+          error: String(lineError)
+        };
+      }
+    }
+
     const { error: updateError } = await admin
       .from("reading_generation_jobs")
       .update({
@@ -71,7 +109,7 @@ export async function POST(request: Request) {
       throw updateError;
     }
 
-    return NextResponse.json({ ok: true, jobId, result });
+    return NextResponse.json({ ok: true, jobId, result, lineDelivery });
   } catch (error) {
     await admin
       .from("reading_generation_jobs")

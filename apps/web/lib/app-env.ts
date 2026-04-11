@@ -42,8 +42,13 @@ export const appEnv = {
   cloudTasksQueueReading: () => requireEnv("CLOUD_TASKS_QUEUE_READING"),
   cloudTasksQueueSpeechFixer: () => requireEnv("CLOUD_TASKS_QUEUE_SPEECH_FIXER"),
   cloudTasksQueueProfile: () => requireEnv("CLOUD_TASKS_QUEUE_PROFILE"),
+  cloudTasksQueueLineDelivery: () => requireEnv("CLOUD_TASKS_QUEUE_LINE_DELIVERY"),
   cloudRunReadingWorkerUrl: () => requireEnv("CLOUD_RUN_READING_WORKER_URL"),
   cloudRunSpeechFixerWorkerUrl: () => requireEnv("CLOUD_RUN_SPEECH_FIXER_WORKER_URL"),
   cloudRunProfileWorkerUrl: () => requireEnv("CLOUD_RUN_PROFILE_WORKER_URL"),
-  workerSharedSecret: () => requireEnv("WORKER_SHARED_SECRET")
+  cloudRunLineDeliveryWorkerUrl: () => requireEnv("CLOUD_RUN_LINE_DELIVERY_WORKER_URL"),
+  workerSharedSecret: () => requireEnv("WORKER_SHARED_SECRET"),
+  lineChannelAccessToken: () => requireEnv("LINE_CHANNEL_ACCESS_TOKEN"),
+  lineChannelSecret: () => requireEnv("LINE_CHANNEL_SECRET"),
+  lineAudioGcsBucket: () => requireEnv("LINE_AUDIO_GCS_BUCKET")
 };

@@ -51,6 +51,14 @@ export const readingGenerateRequestSchema = z.object({
   force: z.boolean().optional()
 });
 
+export const lineDeliveryToggleSchema = z.object({
+  enabled: z.boolean()
+});
+
+export const lineTestSendSchema = z.object({
+  date: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional()
+});
+
 export const speechFixJobStatusSchema = z.enum(["uploaded", "queued", "processing", "completed", "failed"]);
 
 export const speechFixCorrectionSchema = z.object({
@@ -108,6 +116,8 @@ export type FlashcardManageUpdateRequest = z.infer<typeof flashcardManageUpdateS
 export type FlashcardManageDeleteRequest = z.infer<typeof flashcardManageDeleteSchema>;
 export type LearningProfileBuildRequest = z.infer<typeof learningProfileBuildRequestSchema>;
 export type ReadingGenerateRequest = z.infer<typeof readingGenerateRequestSchema>;
+export type LineDeliveryToggleRequest = z.infer<typeof lineDeliveryToggleSchema>;
+export type LineTestSendRequest = z.infer<typeof lineTestSendSchema>;
 export type GeneratedPassage = z.infer<typeof generatedPassageSchema>;
 export type SpeechFixJobStatus = z.infer<typeof speechFixJobStatusSchema>;
 export type SpeechFixCorrection = z.infer<typeof speechFixCorrectionSchema>;

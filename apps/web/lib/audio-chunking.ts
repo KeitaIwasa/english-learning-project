@@ -121,7 +121,7 @@ export async function splitAudioBufferIntoChunks(params: {
   }
 }
 
-function resolveFfmpegTools() {
+export function resolveFfmpegTools() {
   const ffmpegPath = resolveBinaryPath([
     join("node_modules", "ffmpeg-static", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg")
   ]);

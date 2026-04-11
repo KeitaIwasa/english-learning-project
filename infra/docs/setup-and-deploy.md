@@ -102,15 +102,20 @@ bash scripts/deploy_supabase.sh
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `CRON_SECRET` (random long string)
    - `CLOUD_RUN_PROFILE_WORKER_URL`
+   - `CLOUD_RUN_LINE_DELIVERY_WORKER_URL`
    - `CLOUD_RUN_READING_WORKER_URL`
    - `CLOUD_RUN_SPEECH_FIXER_WORKER_URL`
    - `CLOUD_TASKS_PROJECT_ID`
    - `CLOUD_TASKS_LOCATION`
+   - `CLOUD_TASKS_QUEUE_LINE_DELIVERY`
    - `CLOUD_TASKS_QUEUE_PROFILE`
    - `CLOUD_TASKS_QUEUE_READING`
    - `CLOUD_TASKS_QUEUE_SPEECH_FIXER`
-   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
-   - `GCS_TEMP_BUCKET`
+    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+    - `GCS_TEMP_BUCKET`
+   - `LINE_AUDIO_GCS_BUCKET`
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_CHANNEL_SECRET`
    - `WORKER_SHARED_SECRET`
 2. Deploy web:
 
@@ -158,7 +163,8 @@ npx vercel --prod --yes --scope keitaiwasas-projects
 ## 5. Cloud Run worker deploy (gcloud)
 
 Current production routes `CLOUD_RUN_*_WORKER_URL` to Vercel worker endpoints such as
-`https://<your-vercel-domain>/api/workers/speech-fixer-process`.
+`https://<your-vercel-domain>/api/workers/speech-fixer-process` and
+`https://<your-vercel-domain>/api/workers/line-delivery`.
 That means changes to `apps/web/app/api/workers/*` are deployed via Vercel, not via the Cloud Run services below.
 
 This repository currently uses the following Cloud Run services in `us-west1`:
@@ -239,6 +245,21 @@ select cron.schedule(
 ```
 
 (UTC基準: 20:50 UTC = 05:50 JST, 21:00 UTC = 06:00 JST)
+
+## 6.1 LINE auto-delivery setup
+
+1. Create a new LINE Official Account and enable Messaging API.
+2. Set the webhook URL to:
+   - `https://<your-vercel-domain>/api/line/webhook`
+3. Add the bot as a friend from the target LINE account.
+4. Create a GCS bucket for LINE audio delivery and set:
+   - `LINE_AUDIO_GCS_BUCKET`
+5. Add a dedicated Cloud Tasks queue for LINE delivery and set:
+   - `CLOUD_TASKS_QUEUE_LINE_DELIVERY`
+   - `CLOUD_RUN_LINE_DELIVERY_WORKER_URL=https://<your-vercel-domain>/api/workers/line-delivery`
+6. Add the LINE channel secrets to Vercel:
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_CHANNEL_SECRET`
 
 ## 7. Chrome extension setup
 

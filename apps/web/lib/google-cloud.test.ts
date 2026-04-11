@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import {
+  buildGcsV4SignedGetUrl,
   buildGcsV4SignedPutUrl,
   checkGcsObjectExists,
   extractTranscriptFromSpeechBatchResponse,
@@ -35,6 +36,25 @@ describe("buildGcsV4SignedPutUrl", () => {
     expect(parsed.searchParams.get("X-Goog-Algorithm")).toBe("GOOG4-RSA-SHA256");
     expect(parsed.searchParams.get("X-Goog-Expires")).toBe("900");
     expect(parsed.searchParams.get("X-Goog-SignedHeaders")).toBe("content-type;host");
+    expect(parsed.searchParams.get("X-Goog-Signature")).toMatch(/^[a-f0-9]+$/);
+  });
+});
+
+describe("buildGcsV4SignedGetUrl", () => {
+  it("creates a signed GET URL with host-only signed headers", () => {
+    const url = buildGcsV4SignedGetUrl({
+      serviceAccount: createServiceAccountFixture(),
+      bucket: "test-bucket",
+      objectName: "line-audio/u1/job-1/reading.mp3",
+      expiresSeconds: 3600,
+      now: new Date("2026-04-11T00:00:00.000Z")
+    });
+
+    const parsed = new URL(url);
+    expect(parsed.origin).toBe("https://storage.googleapis.com");
+    expect(parsed.pathname).toBe("/test-bucket/line-audio/u1/job-1/reading.mp3");
+    expect(parsed.searchParams.get("X-Goog-Expires")).toBe("3600");
+    expect(parsed.searchParams.get("X-Goog-SignedHeaders")).toBe("host");
     expect(parsed.searchParams.get("X-Goog-Signature")).toMatch(/^[a-f0-9]+$/);
   });
 });
