@@ -11,10 +11,11 @@ export type ConsumedLineLinkCodeResult =
       ok: true;
       userId: string;
       alreadyLinked: boolean;
+      overwritten: boolean;
     }
   | {
       ok: false;
-      error: "invalid" | "expired" | "already_used" | "line_user_conflict";
+      error: "invalid" | "expired" | "already_used";
     };
 
 export type LineLinkFailureReason = Extract<ConsumedLineLinkCodeResult, { ok: false }>["error"];
@@ -139,10 +140,19 @@ export async function consumeLineLinkCode(params: {
     throw conflictError;
   }
   if (existingConflict?.user_id) {
-    return {
-      ok: false,
-      error: "line_user_conflict"
-    } satisfies ConsumedLineLinkCodeResult;
+    const { error: unlinkError } = await params.adminClient
+      .from("profiles")
+      .update({
+        line_user_id: null,
+        line_push_enabled: false,
+        line_link_status: "unlinked",
+        line_linked_at: null
+      })
+      .eq("user_id", existingConflict.user_id);
+
+    if (unlinkError) {
+      throw unlinkError;
+    }
   }
 
   const consume = await params.adminClient
@@ -193,7 +203,8 @@ export async function consumeLineLinkCode(params: {
   return {
     ok: true,
     userId: consume.data.user_id,
-    alreadyLinked: currentProfile?.line_user_id === params.lineUserId
+    alreadyLinked: currentProfile?.line_user_id === params.lineUserId,
+    overwritten: Boolean(existingConflict?.user_id)
   } satisfies ConsumedLineLinkCodeResult;
 }
 
@@ -203,9 +214,6 @@ export function getLineLinkFailureMessage(error: LineLinkFailureReason) {
   }
   if (error === "already_used") {
     return "この連携コードはすでに使われています。必要なら新しいコードを発行してください。";
-  }
-  if (error === "line_user_conflict") {
-    return "このLINEアカウントは別のユーザーに連携済みです。";
   }
   return "連携コードを確認できませんでした。`link ABCD1234` の形式でもう一度送ってください。";
 }

@@ -95,6 +95,8 @@ async function handleEvent(params: {
         type: "text",
         text: result.alreadyLinked
           ? "すでにLINE連携済みです。毎朝06:00の音読文を自動送信します。"
+          : result.overwritten
+            ? "LINE連携を更新しました。毎朝06:00の音読文を自動送信します。"
           : "LINE連携が完了しました。毎朝06:00の音読文を自動送信します。"
       }
     ]
