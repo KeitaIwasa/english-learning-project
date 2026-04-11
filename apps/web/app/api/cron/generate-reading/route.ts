@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { executeReadingGeneration, resolveTargetDate } from "@/app/api/reading/_jobs";
-import { createAdminSupabaseClient } from "@/lib/service";
+import { createAdminSupabaseClient, listAllAuthUserIds } from "@/lib/service";
 
 export async function POST(request: Request) {
   try {
@@ -21,11 +21,7 @@ export async function POST(request: Request) {
     if (userId) {
       userIds = [userId];
     } else {
-      const { data, error } = await adminClient.from("profiles").select("user_id");
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-      userIds = (data ?? []).map((row) => String(row.user_id)).filter(Boolean);
+      userIds = await listAllAuthUserIds(adminClient);
     }
 
     if (userIds.length === 0) {

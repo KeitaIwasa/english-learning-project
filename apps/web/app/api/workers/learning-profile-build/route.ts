@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyWorkerToken } from "@/lib/cloud-tasks";
-import { createAdminSupabaseClient } from "@/lib/service";
+import { todayInJst } from "@/lib/date";
+import { createAdminSupabaseClient, listAllAuthUserIds } from "@/lib/service";
 import { computeLearningProfile } from "@/lib/learning/profile-builder";
 
 type Payload = {
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
   const payload = (await request.json().catch(() => ({}))) as Payload;
   const targetDate = typeof payload.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(payload.date)
     ? payload.date
-    : new Date().toISOString().slice(0, 10);
+    : todayInJst();
   const lookbackDays = Number.isFinite(Number(payload.lookbackDays)) ? Number(payload.lookbackDays) : 14;
 
   const admin = createAdminSupabaseClient();
@@ -67,9 +68,5 @@ export async function POST(request: Request) {
 }
 
 async function listUserIds(admin: ReturnType<typeof createAdminSupabaseClient>) {
-  const { data, error } = await admin.from("profiles").select("user_id");
-  if (error) {
-    throw error;
-  }
-  return (data ?? []).map((row) => String(row.user_id)).filter(Boolean);
+  return await listAllAuthUserIds(admin);
 }

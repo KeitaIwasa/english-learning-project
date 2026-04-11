@@ -1,5 +1,6 @@
 import { createAdminSupabaseClient } from "@/lib/service";
 import { enqueueWorkerTask } from "@/lib/cloud-tasks";
+import { todayInJst } from "@/lib/date";
 
 export type ReadingGenerationTriggerType = "manual" | "cron";
 export type ReadingGenerationJobStatus = "queued" | "processing" | "completed" | "failed";
@@ -55,7 +56,7 @@ export function resolveTargetDate(rawDate: unknown) {
   if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
     return rawDate.trim();
   }
-  return new Date().toISOString().slice(0, 10);
+  return todayInJst();
 }
 
 export async function markTimedOutActiveJobs(params: {

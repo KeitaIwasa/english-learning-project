@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createAdminSupabaseClient } from "@/lib/service";
+import { todayInJst } from "@/lib/date";
+import { createAdminSupabaseClient, listAllAuthUserIds } from "@/lib/service";
 import { enqueueWorkerTask } from "@/lib/cloud-tasks";
 
 export async function POST(request: Request) {
@@ -12,7 +13,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const targetDate = typeof body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
       ? body.date
-      : new Date().toISOString().slice(0, 10);
+      : todayInJst();
     const lookbackDays = Number.isFinite(Number(body?.lookbackDays)) ? Number(body.lookbackDays) : 14;
     const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
 
@@ -45,9 +46,5 @@ export async function POST(request: Request) {
 }
 
 async function listUserIds(admin: ReturnType<typeof createAdminSupabaseClient>) {
-  const { data, error } = await admin.from("profiles").select("user_id");
-  if (error) {
-    throw error;
-  }
-  return (data ?? []).map((row) => String(row.user_id)).filter(Boolean);
+  return await listAllAuthUserIds(admin);
 }

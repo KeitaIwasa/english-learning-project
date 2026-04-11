@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import type { ZodTypeAny } from "zod";
+import { ensureProfileExists } from "@/lib/profiles";
 import { createAdminSupabaseClient } from "@/lib/service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -39,6 +40,15 @@ export async function requireRouteUser() {
       ok: false as const,
       response: jsonError("Unauthorized", 401)
     };
+  }
+
+  try {
+    await ensureProfileExists({
+      userId: user.id,
+      adminClient: createAdminSupabaseClient()
+    });
+  } catch (error) {
+    console.error("[requireRouteUser] failed to ensure profile", error);
   }
 
   return {
