@@ -24,6 +24,8 @@ export type SttChunk = {
   gcsObjectName: string;
   gcsUri: string;
   operationName: string;
+  operationStartedAt?: string;
+  operationUpdatedAt?: string;
   attemptCount: number;
   status: "pending" | "completed" | "failed";
   transcript?: string;

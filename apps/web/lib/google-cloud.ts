@@ -306,6 +306,10 @@ export async function getSpeechBatchOperation(params: {
   return (await response.json()) as {
     done?: boolean;
     error?: { message?: string };
+    metadata?: {
+      createTime?: string;
+      updateTime?: string;
+    };
     response?: {
       results?: Record<
         string,

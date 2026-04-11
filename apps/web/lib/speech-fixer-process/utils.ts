@@ -112,6 +112,8 @@ export function normalizeSttChunk(value: unknown): SttChunk | null {
     gcsObjectName,
     gcsUri,
     operationName,
+    operationStartedAt: typeof row.operationStartedAt === "string" ? row.operationStartedAt : undefined,
+    operationUpdatedAt: typeof row.operationUpdatedAt === "string" ? row.operationUpdatedAt : undefined,
     attemptCount: Math.max(1, Number(row.attemptCount ?? 1) || 1),
     status,
     transcript: typeof row.transcript === "string" ? row.transcript : undefined,

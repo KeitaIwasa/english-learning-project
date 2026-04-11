@@ -12,6 +12,7 @@ import { buildChunkObjectName, mapWithConcurrency } from "@/lib/speech-fixer-pro
 export const STT_CHUNK_DURATION_SEC = 15 * 60;
 export const STT_CHUNK_PARALLELISM = 4;
 export const STT_CHUNK_MAX_ATTEMPTS = 2;
+export const STT_CHUNK_PENDING_TIMEOUT_MS = 10 * 60 * 1000;
 
 export async function createSttChunks(params: {
   accessToken: string;
@@ -61,6 +62,7 @@ export async function createSttChunks(params: {
             gcsObjectName: chunkObjectName,
             gcsUri,
             operationName,
+            operationStartedAt: new Date().toISOString(),
             attemptCount: 1,
             status: "pending"
           } satisfies SttChunk;
@@ -78,6 +80,7 @@ export async function createSttChunks(params: {
               model: params.model,
               gcsUri: params.gcsUri
             }),
+            operationStartedAt: new Date().toISOString(),
             attemptCount: 1,
             status: "pending"
           } satisfies SttChunk
@@ -113,8 +116,36 @@ export async function refreshSttChunk(params: {
   });
 
   if (!operation.done) {
+    const operationStartedAt =
+      typeof operation.metadata?.createTime === "string" && operation.metadata.createTime.trim().length > 0
+        ? operation.metadata.createTime
+        : chunk.operationStartedAt;
+    const operationUpdatedAt =
+      typeof operation.metadata?.updateTime === "string" && operation.metadata.updateTime.trim().length > 0
+        ? operation.metadata.updateTime
+        : chunk.operationUpdatedAt;
+    const staleForTooLong = isPendingOperationTimedOut({
+      operationStartedAt,
+      operationUpdatedAt
+    });
+    if (staleForTooLong) {
+      return await retryOrFailChunk({
+        accessToken: params.accessToken,
+        projectId: params.projectId,
+        location: params.location,
+        model: params.model,
+        chunk: {
+          ...chunk,
+          operationStartedAt,
+          operationUpdatedAt
+        },
+        errorMessage: "Speech-to-Text operation timed out before completion"
+      });
+    }
     return {
       ...chunk,
+      operationStartedAt,
+      operationUpdatedAt,
       status: "pending"
     } satisfies SttChunk;
   }
@@ -161,6 +192,14 @@ export async function refreshSttChunk(params: {
   return {
     ...chunk,
     status: "completed",
+    operationStartedAt:
+      typeof operation.metadata?.createTime === "string" && operation.metadata.createTime.trim().length > 0
+        ? operation.metadata.createTime
+        : chunk.operationStartedAt,
+    operationUpdatedAt:
+      typeof operation.metadata?.updateTime === "string" && operation.metadata.updateTime.trim().length > 0
+        ? operation.metadata.updateTime
+        : chunk.operationUpdatedAt,
     transcript,
     totalResultCount: transcriptResult.totalResultCount,
     nonEmptyResultCount: transcriptResult.nonEmptyResultCount,
@@ -230,8 +269,24 @@ async function retryOrFailChunk(params: {
   return {
     ...params.chunk,
     operationName,
+    operationStartedAt: new Date().toISOString(),
+    operationUpdatedAt: undefined,
     attemptCount: params.chunk.attemptCount + 1,
     status: "pending",
     errorMessage: params.errorMessage
   } satisfies SttChunk;
+}
+
+function isPendingOperationTimedOut(params: {
+  operationStartedAt?: string;
+  operationUpdatedAt?: string;
+}) {
+  const now = Date.now();
+  const startedAtMs = Date.parse(String(params.operationStartedAt ?? ""));
+  if (!Number.isFinite(startedAtMs)) {
+    return false;
+  }
+  const updatedAtMs = Date.parse(String(params.operationUpdatedAt ?? ""));
+  const referenceMs = Number.isFinite(updatedAtMs) ? updatedAtMs : startedAtMs;
+  return now - referenceMs >= STT_CHUNK_PENDING_TIMEOUT_MS || now - startedAtMs >= STT_CHUNK_PENDING_TIMEOUT_MS;
 }
