@@ -26,3 +26,7 @@ zip -r -FS english-flashcard-extension.zip english-flashcard-extension
   `C:\Users\keita\Downloads\english-flashcard-extension`
 - Zip ファイルパス（共有用・任意）:
   `C:\Users\keita\Downloads\english-flashcard-extension.zip`
+
+# 日報
+日報.mdを自己改善ログとして使ってください。
+作業で詰まった時に、過去に同じような問題にぶつかってないか振り返ってみたり、次回同じような作業をするときに前回の自分がどんなことに気をつけるべきか書いておくと、次回以降の自分が助かります。作業がひと段落したときなどに書いてください。

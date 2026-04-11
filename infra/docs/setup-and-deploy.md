@@ -117,6 +117,40 @@ bash scripts/deploy_supabase.sh
    - `LINE_CHANNEL_ACCESS_TOKEN`
    - `LINE_CHANNEL_SECRET`
    - `WORKER_SHARED_SECRET`
+
+### 4.1 Cloud Tasks queue setup (required)
+
+Create queues in the same project/location as `CLOUD_TASKS_PROJECT_ID` and `CLOUD_TASKS_LOCATION`.
+For this repository's current production values:
+
+```bash
+gcloud tasks queues create reading-generate \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+
+gcloud tasks queues create speech-fixer-process \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+
+gcloud tasks queues create learning-profile-build \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+
+gcloud tasks queues create line-delivery \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+```
+
+Verify queues:
+
+```bash
+gcloud tasks queues list \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1 \
+  --format='table(name,state)'
+```
+
+If a queue already exists, `create` returns an AlreadyExists error; that is safe and can be ignored.
 2. Deploy web:
 
 ```bash

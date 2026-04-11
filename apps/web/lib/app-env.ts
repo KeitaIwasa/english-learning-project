@@ -20,8 +20,26 @@ export function optionalEnv(name: string, fallback: string): string {
 
 function normalizeEnv(value: string | undefined): string {
   return String(value ?? "")
+    .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")
     .trim();
+}
+
+export function normalizeQueueNameEnv(value: string | undefined): string {
+  const normalized = normalizeEnv(value);
+  if (!normalized) {
+    return "";
+  }
+  // Keep only the first logical line to guard against accidental trailing newline payloads.
+  return normalized.split(/\r?\n/)[0]?.trim() ?? "";
+}
+
+function requireQueueEnv(name: string): string {
+  const value = normalizeQueueNameEnv(process.env[name]);
+  if (!value) {
+    throw new Error(`Missing environment variable: ${name}`);
+  }
+  return value;
 }
 
 export const appEnv = {
@@ -39,10 +57,10 @@ export const appEnv = {
   supabaseServiceRoleKey: () => requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
   cloudTasksProjectId: () => requireEnv("CLOUD_TASKS_PROJECT_ID"),
   cloudTasksLocation: () => requireEnv("CLOUD_TASKS_LOCATION"),
-  cloudTasksQueueReading: () => requireEnv("CLOUD_TASKS_QUEUE_READING"),
-  cloudTasksQueueSpeechFixer: () => requireEnv("CLOUD_TASKS_QUEUE_SPEECH_FIXER"),
-  cloudTasksQueueProfile: () => requireEnv("CLOUD_TASKS_QUEUE_PROFILE"),
-  cloudTasksQueueLineDelivery: () => requireEnv("CLOUD_TASKS_QUEUE_LINE_DELIVERY"),
+  cloudTasksQueueReading: () => requireQueueEnv("CLOUD_TASKS_QUEUE_READING"),
+  cloudTasksQueueSpeechFixer: () => requireQueueEnv("CLOUD_TASKS_QUEUE_SPEECH_FIXER"),
+  cloudTasksQueueProfile: () => requireQueueEnv("CLOUD_TASKS_QUEUE_PROFILE"),
+  cloudTasksQueueLineDelivery: () => requireQueueEnv("CLOUD_TASKS_QUEUE_LINE_DELIVERY"),
   cloudRunReadingWorkerUrl: () => requireEnv("CLOUD_RUN_READING_WORKER_URL"),
   cloudRunSpeechFixerWorkerUrl: () => requireEnv("CLOUD_RUN_SPEECH_FIXER_WORKER_URL"),
   cloudRunProfileWorkerUrl: () => requireEnv("CLOUD_RUN_PROFILE_WORKER_URL"),
