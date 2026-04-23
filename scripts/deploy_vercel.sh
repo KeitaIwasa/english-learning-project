@@ -13,7 +13,7 @@ if ! npx vercel whoami >/dev/null 2>&1; then
   npx vercel login
 fi
 
-npx vercel link --yes
-npx vercel --prod --yes
+npx vercel link --yes --scope keitaiwasas-projects
+npx vercel --prod --yes --scope keitaiwasas-projects
 
 echo "Vercel deployment complete."

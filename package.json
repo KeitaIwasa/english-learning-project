@@ -18,7 +18,8 @@
     "test:e2e:setup-auth": "node scripts/playwright/setup-auth-cdp.mjs",
     "test:e2e:auth": "playwright test --project=chromium-auth",
     "deploy:supabase": "bash scripts/deploy_supabase.sh",
-    "deploy:vercel": "bash scripts/deploy_vercel.sh"
+    "deploy:vercel": "bash scripts/deploy_vercel.sh",
+    "register:daily-cron": "bash scripts/register_daily_cron.sh"
   },
   "engines": {
     "node": ">=22.12.0"
