@@ -27,6 +27,52 @@ export type Database = {
           next_review_at: string;
         };
       };
+      line_delivery_jobs: {
+        Row: {
+          id: string;
+          user_id: string;
+          passage_id: string;
+          target_date: string;
+          trigger_type: "auto" | "manual";
+          status: "queued" | "processing" | "completed" | "failed";
+          retry_count: number;
+          line_user_id: string;
+          line_retry_key: string;
+          line_request_id: string | null;
+          payload_json: Json;
+          error_message: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+      };
+      line_link_codes: {
+        Row: {
+          id: string;
+          user_id: string;
+          code: string;
+          expires_at: string;
+          used_at: string | null;
+          used_line_user_id: string | null;
+          created_at: string;
+        };
+      };
+      profiles: {
+        Row: {
+          user_id: string;
+          target_level: string | null;
+          ui_lang: string | null;
+          timezone: string | null;
+          line_push_enabled: boolean;
+          line_user_id: string | null;
+          line_link_status: "unlinked" | "pending" | "linked";
+          line_linked_at: string | null;
+          line_last_delivery_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+      };
       reading_generation_jobs: {
         Row: {
           id: string;

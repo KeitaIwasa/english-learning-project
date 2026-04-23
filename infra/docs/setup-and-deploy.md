@@ -4,17 +4,25 @@
 
 ## 0. Production deploy (quick runbook)
 
+Current production web app:
+
+- Vercel team: `keitaiwasas-projects`
+- Vercel project: `web`
+- Canonical URL: `https://web-peach-seven-21.vercel.app`
+
+Run all Vercel commands from `apps/web`. The repository root may have a separate `.vercel` link; do not use that for production web deploys.
+
 Run from repository root:
 
 ```bash
 # 1) Supabase DB
 npm run deploy:supabase
 
+# 1.5) Supabase daily cron
+npm run register:daily-cron
+
 # 2) Vercel (always with explicit scope)
-cd apps/web
-npx vercel link --yes --scope keitaiwasas-projects
-npx vercel --prod --yes --scope keitaiwasas-projects
-cd ../..
+npm run deploy:vercel
 
 # 3) Cloud Run services (optional; not required for current production web worker path)
 gcloud run deploy english-native-fixer \
@@ -79,7 +87,7 @@ npm install
    - `Authentication > Providers > Google`
    - Add redirect URLs:
      - `http://localhost:3000/auth/callback`
-     - `https://<your-vercel-domain>/auth/callback`
+     - `https://web-peach-seven-21.vercel.app/auth/callback`
      - `https://<your-extension-id>.chromiumapp.org/*`
 3. Set Function secrets:
 
@@ -102,22 +110,59 @@ bash scripts/deploy_supabase.sh
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `CRON_SECRET` (random long string)
    - `CLOUD_RUN_PROFILE_WORKER_URL`
+   - `CLOUD_RUN_LINE_DELIVERY_WORKER_URL`
    - `CLOUD_RUN_READING_WORKER_URL`
    - `CLOUD_RUN_SPEECH_FIXER_WORKER_URL`
    - `CLOUD_TASKS_PROJECT_ID`
    - `CLOUD_TASKS_LOCATION`
+   - `CLOUD_TASKS_QUEUE_LINE_DELIVERY`
    - `CLOUD_TASKS_QUEUE_PROFILE`
    - `CLOUD_TASKS_QUEUE_READING`
    - `CLOUD_TASKS_QUEUE_SPEECH_FIXER`
    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
    - `GCS_TEMP_BUCKET`
+   - `LINE_AUDIO_GCS_BUCKET`
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_CHANNEL_SECRET`
    - `WORKER_SHARED_SECRET`
+
+### 4.1 Cloud Tasks queue setup (required)
+
+Create queues in the same project/location as `CLOUD_TASKS_PROJECT_ID` and `CLOUD_TASKS_LOCATION`.
+For this repository's current production values:
+
+```bash
+gcloud tasks queues create reading-generate \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+
+gcloud tasks queues create speech-fixer-process \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+
+gcloud tasks queues create learning-profile-build \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+
+gcloud tasks queues create line-delivery \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1
+```
+
+Verify queues:
+
+```bash
+gcloud tasks queues list \
+  --project=gen-lang-client-0926290743 \
+  --location=us-west1 \
+  --format='table(name,state)'
+```
+
+If a queue already exists, `create` returns an AlreadyExists error; that is safe and can be ignored.
 2. Deploy web:
 
 ```bash
-cd apps/web
-npx vercel link --yes --scope keitaiwasas-projects
-npx vercel --prod --yes --scope keitaiwasas-projects
+npm run deploy:vercel
 ```
 
 ### Vercel CLI scope note (important)
@@ -141,6 +186,14 @@ npx vercel link --yes --scope keitaiwasas-projects
 npx vercel --prod --yes --scope keitaiwasas-projects
 ```
 
+Expected linked project:
+
+```json
+{"projectName":"web"}
+```
+
+If `vercel env ls production --scope keitaiwasas-projects` reports no variables, you are probably linked to the wrong project. Run it from `apps/web` and confirm it targets `keitaiwasas-projects/web`.
+
 ### Deployment mistake log (2026-03-25)
 
 - Mistake:
@@ -158,7 +211,8 @@ npx vercel --prod --yes --scope keitaiwasas-projects
 ## 5. Cloud Run worker deploy (gcloud)
 
 Current production routes `CLOUD_RUN_*_WORKER_URL` to Vercel worker endpoints such as
-`https://<your-vercel-domain>/api/workers/speech-fixer-process`.
+`https://web-peach-seven-21.vercel.app/api/workers/speech-fixer-process` and
+`https://web-peach-seven-21.vercel.app/api/workers/line-delivery`.
 That means changes to `apps/web/app/api/workers/*` are deployed via Vercel, not via the Cloud Run services below.
 
 This repository currently uses the following Cloud Run services in `us-west1`:
@@ -205,20 +259,48 @@ gcloud run deploy speaker-diarization-transcriber \
   --quiet
 ```
 
-## 6. Daily job setup (Supabase SQL Editor)
+## 6. Daily job setup (Supabase cron)
 
-Run SQL with your actual project URL and service role key in headers.
+These jobs are live database state managed by `pg_cron`, not ordinary schema migrations, because the command contains the production `CRON_SECRET`.
+
+Current production schedules:
+
+- `learning-profile-build-daily`: `20:50 UTC` = `05:50 JST`
+- `reading-generate-daily`: `21:00 UTC` = `06:00 JST`
+
+Verify registration:
+
+```bash
+npx supabase db query --linked -o table \
+  "select jobname, schedule, active from cron.job order by jobname;"
+```
+
+Register or repair the jobs from repository root:
+
+```bash
+npm run register:daily-cron
+```
+
+The script pulls the Vercel Production env for `keitaiwasas-projects/web`, writes a temporary SQL file containing `CRON_SECRET`, applies it to the linked Supabase DB, then deletes the temporary file.
+
+Equivalent SQL, if you need to run it manually with the production URL and the Vercel `CRON_SECRET`:
 
 ```sql
 create extension if not exists pg_net;
 create extension if not exists pg_cron;
+
+select cron.unschedule('learning-profile-build-daily')
+where exists (select 1 from cron.job where jobname = 'learning-profile-build-daily');
+
+select cron.unschedule('reading-generate-daily')
+where exists (select 1 from cron.job where jobname = 'reading-generate-daily');
 
 select cron.schedule(
   'learning-profile-build-daily',
   '50 20 * * *',
   $$
   select net.http_post(
-    url := 'https://<your-vercel-domain>/api/cron/build-profile',
+    url := 'https://web-peach-seven-21.vercel.app/api/cron/build-profile',
     headers := '{"Content-Type":"application/json","x-cron-secret":"<cron-secret>"}'::jsonb,
     body := '{}'::jsonb
   );
@@ -230,7 +312,7 @@ select cron.schedule(
   '00 21 * * *',
   $$
   select net.http_post(
-    url := 'https://<your-vercel-domain>/api/cron/generate-reading',
+    url := 'https://web-peach-seven-21.vercel.app/api/cron/generate-reading',
     headers := '{"Content-Type":"application/json","x-cron-secret":"<cron-secret>"}'::jsonb,
     body := '{}'::jsonb
   );
@@ -239,6 +321,21 @@ select cron.schedule(
 ```
 
 (UTC基準: 20:50 UTC = 05:50 JST, 21:00 UTC = 06:00 JST)
+
+## 6.1 LINE auto-delivery setup
+
+1. Create a new LINE Official Account and enable Messaging API.
+2. Set the webhook URL to:
+   - `https://web-peach-seven-21.vercel.app/api/line/webhook`
+3. Add the bot as a friend from the target LINE account.
+4. Create a GCS bucket for LINE audio delivery and set:
+   - `LINE_AUDIO_GCS_BUCKET`
+5. Add a dedicated Cloud Tasks queue for LINE delivery and set:
+   - `CLOUD_TASKS_QUEUE_LINE_DELIVERY`
+   - `CLOUD_RUN_LINE_DELIVERY_WORKER_URL=https://web-peach-seven-21.vercel.app/api/workers/line-delivery`
+6. Add the LINE channel secrets to Vercel:
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_CHANNEL_SECRET`
 
 ## 7. Chrome extension setup
 

@@ -119,6 +119,44 @@ export function buildGcsV4SignedPutUrl(params: {
   return `https://${GCS_HOST}${canonicalUri}?${canonicalQuery}&X-Goog-Signature=${signature}`;
 }
 
+export function buildGcsV4SignedGetUrl(params: {
+  serviceAccount: ServiceAccount;
+  bucket: string;
+  objectName: string;
+  expiresSeconds: number;
+  now?: Date;
+}) {
+  const now = params.now ?? new Date();
+  const iso = toIsoBasicUtc(now);
+  const yyyymmdd = iso.slice(0, 8);
+  const scope = `${yyyymmdd}/auto/storage/goog4_request`;
+  const credential = `${params.serviceAccount.client_email}/${scope}`;
+  const canonicalUri = `/${encodePath(params.bucket)}/${encodePath(params.objectName)}`;
+
+  const query = new URLSearchParams({
+    "X-Goog-Algorithm": "GOOG4-RSA-SHA256",
+    "X-Goog-Credential": credential,
+    "X-Goog-Date": iso,
+    "X-Goog-Expires": String(params.expiresSeconds),
+    "X-Goog-SignedHeaders": "host"
+  });
+  const canonicalQuery = [...query.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${pctEncode(k)}=${pctEncode(v)}`)
+    .join("&");
+
+  const canonicalHeaders = `host:${GCS_HOST}\n`;
+  const canonicalRequest = ["GET", canonicalUri, canonicalQuery, canonicalHeaders, "host", "UNSIGNED-PAYLOAD"].join("\n");
+  const stringToSign = ["GOOG4-RSA-SHA256", iso, scope, sha256Hex(canonicalRequest)].join("\n");
+
+  const signer = createSign("RSA-SHA256");
+  signer.update(stringToSign);
+  signer.end();
+  const signature = signer.sign(params.serviceAccount.private_key).toString("hex");
+
+  return `https://${GCS_HOST}${canonicalUri}?${canonicalQuery}&X-Goog-Signature=${signature}`;
+}
+
 export async function getGoogleAccessToken(params: {
   serviceAccount: ServiceAccount;
   scopes: string[];

@@ -24,15 +24,21 @@ Personal English learning platform with:
 
 ## Deploy (production)
 
+Current production web app:
+
+- Vercel team: `keitaiwasas-projects`
+- Vercel project: `web`
+- Canonical URL: `https://web-peach-seven-21.vercel.app`
+
 ```bash
 # Supabase
 npm run deploy:supabase
 
+# Supabase daily cron
+npm run register:daily-cron
+
 # Vercel
-cd apps/web
-npx vercel link --yes --scope keitaiwasas-projects
-npx vercel --prod --yes --scope keitaiwasas-projects
-cd ../..
+npm run deploy:vercel
 
 # Cloud Run (gcloud)
 # NOTE: Use explicit account to avoid permission issues with default service accounts.

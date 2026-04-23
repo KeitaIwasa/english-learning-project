@@ -160,11 +160,22 @@ nav a:hover {
   word-break: break-all;
 }
 
+.user-menu-link,
 .signout-btn {
   width: 100%;
+  display: block;
   background: #eff4ff;
   color: #17325b;
   border: 1px solid #c8d8f8;
+  text-decoration: none;
+  text-align: center;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+}
+
+.user-menu-link {
+  margin-bottom: 8px;
 }
 
 button {
